@@ -994,15 +994,10 @@ function openDrillModal() {
     let left = `<div class="modal-diagram">${miniBoardHtml(tmpG.fen(), state.playerColor === "b", "mini-lg")}
         <div class="stats-caption">Позиция линии после ${Math.ceil(d.drill.line.length / 2)}-го хода; вы — снизу</div></div>`;
     if (stats) {
-        const score = expectedScoreForColor(stats, state.playerColor).toFixed(0);
-        left += `<h4>📊 Шансы</h4>
-            <div class="stats-bar">
-                <div class="seg seg-w" style="width:${stats.w}%">${stats.w}%</div>
-                <div class="seg seg-d" style="width:${stats.d}%">${stats.d}%</div>
-                <div class="seg seg-b" style="width:${stats.b}%">${stats.b}%</div>
-            </div>
-            <div class="stats-caption">победы белых · ничьи · победы чёрных <span class="muted">(мастерские базы, округлённо)</span></div>
-            <div class="stats-mine">Ожидаемый счёт за твой цвет (${state.playerColor === "w" ? "белые" : "чёрные"}): <b>${score}%</b></div>`;
+        left += `<h4>📊 Шансы по уровням</h4>`
+            + statsRowHtml("Мастера", stats, state.playerColor)
+            + statsRowHtml("Любители ~1600", FAMILY_STATS_AMATEUR[info.statsFamily], state.playerColor)
+            + `<div class="stats-caption">победы белых · ничьи · победы чёрных (округлённо). У любителей ничьих мало, а острые схемы приносят больше побед — сравнивай свой уровень.</div>`;
     }
     left += `<h4>💡 Основная идея</h4><p>${info.idea}</p>
         <h4>📋 План</h4>
@@ -1328,6 +1323,8 @@ function renderPosStats() {
     // Имя дебюта скрывается только в ЗАГАДКЕ (drill); в learn-режиме секрета нет.
     const hideName = state.mode === "drill" && state.drill && !state.drill.teach && state.drill.phase === "quiz";
     const myScore = expectedScoreForColor(stats, state.playerColor).toFixed(0);
+    const statsAm = statsForFamilyAmateur(fam);
+    const amScore = statsAm ? expectedScoreForColor(statsAm, state.playerColor).toFixed(0) : null;
     box.innerHTML = `<span class="ps-name">${hideName ? "Позиция (дебют скрыт)" : fam.name}</span>
         <span class="ps-bar">
             <span class="seg seg-w" style="width:${stats.w}%"></span>
@@ -1335,7 +1332,25 @@ function renderPosStats() {
             <span class="seg seg-b" style="width:${stats.b}%"></span>
         </span>
         <span class="ps-nums">${stats.w}·${stats.d}·${stats.b}</span>
-        <span class="ps-score">за вас: <b>${myScore}%</b></span>`;
+        <span class="ps-score">за вас: <b>${myScore}%</b>${amScore ? ` <span class="muted">(люб. ${amScore}%)</span>` : ""}</span>`;
+}
+
+/**
+ * Строка статистики уровня: подпись + полоса w/d/b + ожидаемый счёт за цвет игрока.
+ * Уровни различаются кардинально: у любителей есть дебюты с чёрными >50%.
+ */
+function statsRowHtml(label, stats, playerColor) {
+    if (!stats) return "";
+    const score = expectedScoreForColor(stats, playerColor).toFixed(0);
+    return `<div class="stats-row">
+        <span class="stats-row-label">${label}</span>
+        <span class="stats-bar stats-bar-slim">
+            <span class="seg seg-w" style="width:${stats.w}%">${stats.w}</span>
+            <span class="seg seg-d" style="width:${stats.d}%">${stats.d}</span>
+            <span class="seg seg-b" style="width:${stats.b}%">${stats.b}</span>
+        </span>
+        <span class="stats-row-score">за вас <b>${score}%</b></span>
+    </div>`;
 }
 
 /**
@@ -1383,19 +1398,13 @@ function renderTutor() {
     }
     html += `<p class="strat-summary">${fam.summary}</p>`;
 
-    // Статистика текущего дебюта: белые/ничьи/чёрные + ожидаемый счёт игрока.
+    // Статистика текущего дебюта по уровням: мастера и любители.
     const stats = statsForFamily(fam);
     if (stats) {
-        const myScore = expectedScoreForColor(stats, state.playerColor).toFixed(0);
-        html += `<div class="stats-block">
-            <div class="stats-bar">
-                <div class="seg seg-w" style="width:${stats.w}%">${stats.w}%</div>
-                <div class="seg seg-d" style="width:${stats.d}%">${stats.d}%</div>
-                <div class="seg seg-b" style="width:${stats.b}%">${stats.b}%</div>
-            </div>
-            <div class="stats-caption">победы белых · ничьи · победы чёрных <span class="muted">(мастерские базы, округлённо)</span></div>
-            <div class="stats-mine">Ожидаемый счёт за вас (${state.playerColor === "w" ? "белые" : "чёрные"}): <b>${myScore}%</b></div>
-        </div>`;
+        html += `<div class="stats-block">`
+            + statsRowHtml("Мастера", stats, state.playerColor)
+            + statsRowHtml("Любители ~1600", statsForFamilyAmateur(fam), state.playerColor)
+            + `<div class="stats-caption">победы белых · ничьи · победы чёрных (округлённо)</div></div>`;
     }
 
     const iAmWhite = state.playerColor === "w";
@@ -1549,18 +1558,33 @@ function backToSetup() {
     $("setup-step3").classList.add("hidden");
 }
 
-/** Шаг 1 → шаг 2: параметры режима (для «Дебютов» — сначала дебют+цвет, потом шаг 3). */
+/** Шаг 1 → дальше: режим всегда выбирается ПЕРВЫМ, параметры — потом. */
 function setupContinue() {
     const mode = document.querySelector("input[name='mode']:checked").value;
     if (mode === "puzzles" || mode === "theory") { startGame(); return; } // параметров нет
-    $("learn-picker").classList.toggle("hidden", mode !== "openings");
-    $("difficulty-fieldset").classList.toggle("hidden", mode !== "casual");
-    $("btn-start").classList.toggle("hidden", mode === "openings");
-    $("btn-continue2").classList.toggle("hidden", mode !== "openings");
-    $("setup-hint").textContent = MODE_HINTS[mode] || "";
     $("setup-step1").classList.add("hidden");
+    if (mode === "openings") {
+        // Дебюты: сначала занятие (учить/тренировать/разбор), потом дебют+цвет.
+        $("setup-step3").classList.remove("hidden");
+        return;
+    }
+    $("learn-picker").classList.add("hidden");
+    $("difficulty-fieldset").classList.toggle("hidden", mode !== "casual");
+    $("setup-hint").textContent = MODE_HINTS[mode] || "";
     $("setup-step2").classList.remove("hidden");
-    if (mode === "openings") renderLearnPreview();
+}
+
+/** Шаг занятия «Дебютов» → параметры: дебют (кроме свободного разбора) + цвет. */
+function setupOpeningsParams() {
+    const sub = document.querySelector("input[name='openings-submode']:checked").value;
+    $("learn-picker").classList.toggle("hidden", sub === "tutor");
+    $("difficulty-fieldset").classList.add("hidden");
+    $("setup-hint").textContent = sub === "tutor"
+        ? "Свободный разбор: выбери цвет (снизу) — ходить можно за обе стороны."
+        : "Выбери дебют и свой цвет.";
+    $("setup-step3").classList.add("hidden");
+    $("setup-step2").classList.remove("hidden");
+    if (sub !== "tutor") renderLearnPreview();
 }
 
 /** Превью выбранного дебюта: диаграмма финальной позиции линии + шансы за оба цвета. */
@@ -1572,18 +1596,14 @@ function renderLearnPreview() {
     drillObj.line.forEach((m) => tmp.move(m));
     let html = miniBoardHtml(tmp.fen(), color === "b", "mini-lg")
         + `<div class="stats-caption">К этой позиции ведёт линия (после ${Math.ceil(drillObj.line.length / 2)}-го хода); вы — снизу</div>`;
-    // Шансы дебюта: помогают осознанно выбрать цвет.
+    // Шансы дебюта ПО УРОВНЯМ: мастера и любители играют дебюты по-разному.
     const stats = FAMILY_STATS[drillObj.info.statsFamily];
+    const statsAm = FAMILY_STATS_AMATEUR[drillObj.info.statsFamily];
     if (stats) {
-        const wScore = expectedScoreForColor(stats, "w").toFixed(0);
-        const bScore = expectedScoreForColor(stats, "b").toFixed(0);
-        html += `<div class="stats-bar learn-stats-bar">
-                <div class="seg seg-w" style="width:${stats.w}%">${stats.w}%</div>
-                <div class="seg seg-d" style="width:${stats.d}%">${stats.d}%</div>
-                <div class="seg seg-b" style="width:${stats.b}%">${stats.b}%</div>
-            </div>
-            <div class="stats-caption">победы белых · ничьи · победы чёрных <span class="muted">(мастерские базы)</span></div>
-            <div class="stats-mine">Ожидаемый счёт: за белых <b class="${color === "w" ? "learn-my-color" : ""}">${wScore}%</b> · за чёрных <b class="${color === "b" ? "learn-my-color" : ""}">${bScore}%</b></div>`;
+        html += `<div class="learn-stats-bar">`
+            + statsRowHtml("Мастера", stats, color)
+            + statsRowHtml("Любители ~1600", statsAm, color)
+            + `<div class="stats-caption">победы белых · ничьи · победы чёрных <span class="muted">(округлённо)</span></div></div>`;
     }
     box.innerHTML = html;
 }
@@ -1591,19 +1611,17 @@ function renderLearnPreview() {
 // ---------------- Инициализация ----------------
 document.addEventListener("DOMContentLoaded", () => {
     $("btn-start").addEventListener("click", startGame);
-    $("btn-start3").addEventListener("click", startGame);
     $("btn-continue").addEventListener("click", setupContinue);
-    $("btn-continue2").addEventListener("click", () => {
-        $("setup-step2").classList.add("hidden");
-        $("setup-step3").classList.remove("hidden");
-    });
+    $("btn-continue3").addEventListener("click", setupOpeningsParams);
     $("btn-back-step").addEventListener("click", () => {
         $("setup-step2").classList.add("hidden");
-        $("setup-step1").classList.remove("hidden");
+        // Из параметров «Дебютов» — назад к выбору занятия, иначе на шаг 1.
+        const openings = document.querySelector("input[name='mode'][value='openings']").checked;
+        $(openings ? "setup-step3" : "setup-step1").classList.remove("hidden");
     });
     $("btn-back-step3").addEventListener("click", () => {
         $("setup-step3").classList.add("hidden");
-        $("setup-step2").classList.remove("hidden");
+        $("setup-step1").classList.remove("hidden");
     });
     // Табы панели: Анализ / Ходы.
     document.querySelectorAll(".ptab").forEach((t) => t.addEventListener("click", () => {

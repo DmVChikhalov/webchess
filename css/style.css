@@ -282,6 +282,12 @@ legend { padding: 0 8px; color: var(--accent-2); font-weight: 600; }
 .seg-b { background: #23211d; color: #c9c4b8; }
 .stats-caption { font-size: 0.8em; color: var(--muted); margin-top: 4px; }
 .stats-mine { font-size: 0.92em; margin-top: 5px; }
+/* Строка «уровень: полоса + счёт» */
+.stats-row { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+.stats-row-label { flex: 0 0 108px; font-size: 0.82em; color: var(--muted); text-align: right; }
+.stats-bar-slim { flex: 1 1 auto; height: 18px; font-size: 0.7em; }
+.stats-row-score { flex: 0 0 auto; font-size: 0.85em; }
+@media (max-width: 700px) { .stats-row-label { flex-basis: 84px; font-size: 0.74em; } }
 
 .history { line-height: 1.9; max-height: 180px; overflow-y: auto; font-size: 0.95em; }
 .mv-num { color: var(--muted); }
