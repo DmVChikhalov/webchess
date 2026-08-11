@@ -8,7 +8,7 @@
 // ---------------- Константы ----------------
 // Stockfish 18 (полная сборка, обе NNUE-сети вшиты в wasm — EvalFile не нужен).
 // Запасной вариант для слабых машин: lib/stockfish-18-lite-single.js (7 МБ).
-const ENGINE_PATH = "lib/stockfish-18-lite-single.js"; // Pages: лёгкая сборка (7 МБ) — для телефонов
+const ENGINE_PATH = "lib/stockfish-18-lite-single.js";
 const HASH_MB = 128;
 const GO_COMMAND = "go depth 24 movetime 2500"; // стоп по первому из лимитов
 const MATE_SCORE_CP = 100000;
@@ -24,9 +24,11 @@ const DIFFICULTY_LEVELS = {
 
 // ОБА цвета — залитые глифы: контурные «белые» (♔♙…) на iOS/Android рендерятся
 // тонкими прозрачными скелетами разного размера. Цвет задаётся CSS-классами.
+// ︎ (VARIATION SELECTOR-15) обязателен: без него iOS рисует ♟ как ЦВЕТНОЙ
+// ЭМОДЗИ (всегда чёрный), игнорируя CSS-цвет.
 const UNICODE_PIECES = {
-    w: { k: "♚", q: "♛", r: "♜", b: "♝", n: "♞", p: "♟" },
-    b: { k: "♚", q: "♛", r: "♜", b: "♝", n: "♞", p: "♟" },
+    w: { k: "♚︎", q: "♛︎", r: "♜︎", b: "♝︎", n: "♞︎", p: "♟︎" },
+    b: { k: "♚︎", q: "♛︎", r: "♜︎", b: "♝︎", n: "♞︎", p: "♟︎" },
 };
 const FILES = "abcdefgh";
 const SAN_RU = { K: "Кр", Q: "Ф", R: "Л", B: "С", N: "К" };
