@@ -331,12 +331,7 @@ legend { padding: 0 8px; color: var(--accent-2); font-weight: 600; }
 
 .rating-badge { color: var(--accent-2); font-size: 1.05em; margin: 2px 0 10px; }
 .rating-badge b { font-size: 1.15em; }
-.cloud-sync { display: flex; gap: 10px; margin-top: 14px; justify-content: center; }
-.cloud-sync button {
-    background: none; border: none; color: var(--muted); cursor: pointer; font-family: inherit;
-    font-size: 0.82em; text-decoration: underline; text-underline-offset: 3px;
-}
-.cloud-sync button:hover { color: var(--accent-2); }
+.progress-note { margin-top: 12px; text-align: center; color: var(--muted); font-size: 0.8em; }
 .theory-select {
     width: 100%; padding: 9px 10px; border-radius: 9px; border: 1px solid #3d3b34;
     background: var(--panel-2); color: var(--text); font-family: inherit; font-size: 0.95em;

@@ -73,79 +73,8 @@ function renderRatingBadge() {
     if (el) el.innerHTML = `🏅 Твой рейтинг: <b>${getRating()}</b>`;
 }
 
-// ---------------- Облачная синхронизация (GitHub Gist, опционально) ----------------
-// Личный кабинет без сервера: прогресс хранится в ПРИВАТНОМ gist пользователя.
-// Нужен персональный токен GitHub со скоупом gist (вводится один раз).
-const SYNC_TOKEN_KEY = "webchess_gh_token";
-const SYNC_GIST_KEY = "webchess_gh_gist";
-const SYNC_GIST_DESC = "webchess-progress";
-const SYNC_FILE = "webchess.json";
-
-function cloudToken() {
-    let t = localStorage.getItem(SYNC_TOKEN_KEY);
-    if (!t) {
-        t = prompt("Вставь GitHub-токен со скоупом «gist».\nСоздать: github.com/settings/tokens → Generate new token (classic) → отметь только gist.");
-        if (t) localStorage.setItem(SYNC_TOKEN_KEY, t.trim());
-    }
-    return t ? t.trim() : null;
-}
-
-async function cloudApi(path, method, body, token) {
-    const resp = await fetch("https://api.github.com" + path, {
-        method: method || "GET",
-        headers: { Authorization: "Bearer " + token, Accept: "application/vnd.github+json" },
-        body: body ? JSON.stringify(body) : undefined,
-    });
-    if (resp.status === 401) { localStorage.removeItem(SYNC_TOKEN_KEY); throw new Error("токен не подошёл (удалён — введи заново)"); }
-    if (!resp.ok) throw new Error("GitHub API: " + resp.status);
-    return resp.json();
-}
-
-async function cloudFindGist(token) {
-    const cached = localStorage.getItem(SYNC_GIST_KEY);
-    if (cached) return cached;
-    const gists = await cloudApi("/gists?per_page=100", "GET", null, token);
-    const g = gists.find((x) => x.description === SYNC_GIST_DESC);
-    if (g) { localStorage.setItem(SYNC_GIST_KEY, g.id); return g.id; }
-    return null;
-}
-
-async function cloudSave() {
-    const token = cloudToken();
-    if (!token) return;
-    const payload = {
-        elo: getRating(),
-        puzzlesSolved: puzzlesSolvedIds(),
-        theoryPos: theoryLoadPos(),
-        ts: new Date().toISOString(),
-    };
-    try {
-        const files = {}; files[SYNC_FILE] = { content: JSON.stringify(payload, null, 2) };
-        const gistId = await cloudFindGist(token);
-        if (gistId) await cloudApi("/gists/" + gistId, "PATCH", { files }, token);
-        else {
-            const g = await cloudApi("/gists", "POST", { description: SYNC_GIST_DESC, public: false, files }, token);
-            localStorage.setItem(SYNC_GIST_KEY, g.id);
-        }
-        alert(`Сохранено в облако: рейтинг ${payload.elo}, задач решено ${payload.puzzlesSolved.length}.`);
-    } catch (e) { alert("Не удалось сохранить: " + e.message); }
-}
-
-async function cloudLoad() {
-    const token = cloudToken();
-    if (!token) return;
-    try {
-        const gistId = await cloudFindGist(token);
-        if (!gistId) { alert("В облаке пока нет сохранения — сначала «Сохранить прогресс»."); return; }
-        const g = await cloudApi("/gists/" + gistId, "GET", null, token);
-        const data = JSON.parse(g.files[SYNC_FILE].content);
-        if (Number.isFinite(data.elo)) setRating(data.elo);
-        if (Array.isArray(data.puzzlesSolved)) localStorage.setItem(PUZZLE_STORAGE_KEY, JSON.stringify(data.puzzlesSolved));
-        if (data.theoryPos) theorySavePos(data.theoryPos.s || 0, data.theoryPos.p || 0);
-        renderRatingBadge();
-        alert(`Загружено: рейтинг ${data.elo}, задач решено ${(data.puzzlesSolved || []).length} (сохранение от ${data.ts ? data.ts.slice(0, 10) : "?"}).`);
-    } catch (e) { alert("Не удалось загрузить: " + e.message); }
-}
+// Прогресс (рейтинг, решённые задачи, позиция в учебнике) хранится локально
+// в localStorage устройства — автоматически, без аккаунтов и облаков.
 
 const MODE_BADGES = {
     training: "Режим: тренировка",
@@ -1693,8 +1622,6 @@ document.addEventListener("DOMContentLoaded", () => {
             if (!$("learn-picker").classList.contains("hidden")) renderLearnPreview();
         }));
     renderRatingBadge();
-    $("btn-cloud-save").addEventListener("click", cloudSave);
-    $("btn-cloud-load").addEventListener("click", cloudLoad);
     setEngineStatus("Загрузка движка…");
     engine.init();
 
