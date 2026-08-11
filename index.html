@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>WebChess — обучающие шахматы</title>
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#1c1b18">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="WebChess">
+<link rel="apple-touch-icon" href="icon-180.png">
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+<!-- ЭКРАН НАСТРОЙКИ -->
+<div id="setup-screen" class="screen">
+    <div class="setup-card">
+        <h1>♞ WebChess</h1>
+        <p class="subtitle">Обучающие шахматы со Stockfish 18 — максимальная сила, разбор каждого хода с теорией и книжными сносками.</p>
+
+        <!-- Шаг 1: режим -->
+        <div id="setup-step1">
+            <fieldset>
+                <legend>Режим</legend>
+                <label class="radio-card">
+                    <input type="radio" name="mode" value="training" checked>
+                    <span class="rc-icon">🎓</span>
+                    <span>Тренировка<small>Разбор каждого хода: дебютная теория, идея, перспектива, сноски из книг</small></span>
+                </label>
+                <label class="radio-card">
+                    <input type="radio" name="mode" value="casual">
+                    <span class="rc-icon">⚔️</span>
+                    <span>Обычная игра<small>Только рекомендации лучшего хода, без подробного разбора</small></span>
+                </label>
+                <label class="radio-card">
+                    <input type="radio" name="mode" value="learn">
+                    <span class="rc-icon">📖</span>
+                    <span>Учить базовые дебюты<small>Выбери дебют и цвет — тренажёр прямо говорит, какую фигуру куда двигать и почему; соперник отвечает сам</small></span>
+                </label>
+                <label class="radio-card">
+                    <input type="radio" name="mode" value="drill">
+                    <span class="rc-icon">🎯</span>
+                    <span>Тренировка дебютов<small>Загадан дебют — определи его по первым ходам и играй лучшую линию. Цвет и дебют случайные; в конце — план, статистика, знаменитые партии</small></span>
+                </label>
+                <label class="radio-card">
+                    <input type="radio" name="mode" value="tutor">
+                    <span class="rc-icon">🧭</span>
+                    <span>Самоучитель дебютов<small>Ходить можно за обе стороны; «Ходи» делает ход движка за любую сторону. Панель: дебют, стратегия за вас и план соперника</small></span>
+                </label>
+            </fieldset>
+            <button id="btn-continue" class="btn-primary">Продолжить</button>
+        </div>
+
+        <!-- Шаг 2: параметры выбранного режима (цвет — только там, где он есть) -->
+        <div id="setup-step2" class="hidden">
+            <div id="learn-picker" class="learn-picker hidden">
+                <label for="learn-opening">Какой дебют учим:</label>
+                <select id="learn-opening"></select>
+                <div id="learn-preview" class="learn-preview"></div>
+            </div>
+            <fieldset id="color-fieldset">
+                <legend>Ваш цвет (вы всегда снизу)</legend>
+                <label class="radio-card">
+                    <input type="radio" name="color" value="w" checked>
+                    <span class="rc-icon rc-king-white">♚</span><span>Белые</span>
+                </label>
+                <label class="radio-card">
+                    <input type="radio" name="color" value="b">
+                    <span class="rc-icon rc-king-black">♚</span><span>Чёрные</span>
+                </label>
+            </fieldset>
+            <p class="hint" id="setup-hint"></p>
+            <div class="setup-actions">
+                <button id="btn-back-step" class="btn-secondary">← Назад</button>
+                <button id="btn-start" class="btn-primary">Начать партию</button>
+            </div>
+        </div>
+        <div id="engine-status" class="engine-status">Загрузка движка…</div>
+    </div>
+</div>
+
+<!-- ЭКРАН ИГРЫ -->
+<div id="game-screen" class="screen hidden">
+    <div class="game-layout">
+
+        <div class="board-column">
+            <div class="board-header">
+                <span id="mode-badge" class="badge"></span>
+                <span id="turn-indicator"></span>
+            </div>
+            <div id="captured-top" class="captured-bar"></div>
+            <div class="board-wrap">
+                <div id="eval-bar"><div id="eval-fill"></div><span id="eval-label">…</span></div>
+                <div class="board-frame">
+                    <div id="board"></div>
+                    <svg id="arrow-layer" viewBox="0 0 8 8" preserveAspectRatio="none"></svg>
+                    <div id="promotion-overlay" class="hidden"></div>
+                </div>
+            </div>
+            <div id="captured-bottom" class="captured-bar"></div>
+            <div id="pos-stats" class="pos-stats hidden"></div>
+            <div id="game-status" class="game-status hidden"></div>
+            <div class="controls">
+                <button id="btn-engine-move" class="btn-primary">Ходи (лучший ход движка)</button>
+                <button id="btn-undo" class="btn-secondary">↩ Взять ход назад</button>
+                <button id="btn-new-game" class="btn-secondary">Новая партия</button>
+            </div>
+        </div>
+
+        <div class="panel-column">
+            <div id="tutor-box" class="panel-box hidden"></div>
+            <div id="recommend-box" class="panel-box"></div>
+            <div id="review-box" class="panel-box"></div>
+            <div class="panel-box">
+                <h3>Ходы партии</h3>
+                <div id="history-box" class="history"></div>
+            </div>
+        </div>
+
+    </div>
+</div>
+
+<div id="drill-modal" class="modal-overlay hidden"></div>
+
+<script src="lib/chess.js"></script>
+<script src="js/openings.js"></script>
+<script src="js/strategies.js"></script>
+<script src="js/drills.js"></script>
+<script src="js/explain.js"></script>
+<script src="js/app.js"></script>
+</body>
+</html>
