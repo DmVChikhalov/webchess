@@ -13,8 +13,19 @@ const HASH_MB = 128;
 const GO_COMMAND = "go depth 24 movetime 2500"; // стоп по первому из лимитов
 const MATE_SCORE_CP = 100000;
 
+// Уровни силы бота для обычной игры. elo=null — без ограничения (полный Stockfish).
+// UCI_Elo у Stockfish ограничен снизу 1320 — «новичок» дожимается мелкой глубиной.
+const DIFFICULTY_LEVELS = {
+    novice:     { name: "Новичок (≈1000)",  elo: 1320, go: "go depth 4 movetime 300",  approx: 1000 },
+    club:       { name: "Средний (≈1500)",  elo: 1500, go: "go depth 10 movetime 700", approx: 1500 },
+    strong:     { name: "Максимум (≈2300)", elo: 2300, go: "go depth 16 movetime 1500", approx: 2300 },
+    impossible: { name: "Невозможный (полный Stockfish)", elo: null, go: GO_COMMAND, approx: 3200 },
+};
+
+// ОБА цвета — залитые глифы: контурные «белые» (♔♙…) на iOS/Android рендерятся
+// тонкими прозрачными скелетами разного размера. Цвет задаётся CSS-классами.
 const UNICODE_PIECES = {
-    w: { k: "♔", q: "♕", r: "♖", b: "♗", n: "♘", p: "♙" },
+    w: { k: "♚", q: "♛", r: "♜", b: "♝", n: "♞", p: "♟" },
     b: { k: "♚", q: "♛", r: "♜", b: "♝", n: "♞", p: "♟" },
 };
 const FILES = "abcdefgh";
@@ -39,10 +50,9 @@ const MODE_BADGES = {
 };
 // Подсказка на 2-м шаге настройки — своя для каждого режима.
 const MODE_HINTS = {
-    training: "Вы ходите за обе стороны. Не хотите думать за противника — жмите «Ходи», и лучший ход сделает Stockfish.",
-    casual: "Вы ходите за обе стороны; движок всегда подсказывает лучший ход.",
-    learn: "Тренажёр показывает каждый ваш ход прямо на доске и объясняет его; соперник отвечает сам.",
-    tutor: "Разбирайте вариации за обе стороны; панель объясняет дебют, стратегию и статистику.",
+    training: "Вы ходите за обе стороны. Не хотите думать за противника — жмите «Ход Stockfish».",
+    casual: "Честная партия против бота: подсказок нет, бот ходит сам.",
+    openings: "Выберите дебют и свой цвет — на следующем шаге решите, как заниматься.",
 };
 const DRILL_OPP_MOVE_DELAY_MS = 650;   // пауза перед авто-ходом тренажёра
 const DRILL_MODAL_DELAY_MS = 700;      // пауза между последним ходом линии и модалкой
@@ -64,6 +74,7 @@ const state = {
     engineMoveRequested: false,
     drill: null,          // состояние тренировки дебютов {drill, phase, feedback, wrongTries, replayPly}
     drillForceId: null,   // ?drill=<id> — детерминированный выбор тренировки (тесты)
+    difficulty: "club",   // уровень бота в обычной игре (ключ DIFFICULTY_LEVELS)
 };
 
 // ---------------- Движок ----------------
@@ -101,12 +112,26 @@ const engine = {
         if (line.startsWith("bestmove ")) { handleBestmove(line); return; }
     },
 
+    goCommand: GO_COMMAND, // команда поиска: в обычной игре зависит от сложности
+
     analyze(fen) {
         if (this.searching) { this.queuedFen = fen; return; }
         this.searching = true;
         this.currentFen = fen;
         this.send("position fen " + fen);
-        this.send(GO_COMMAND);
+        this.send(this.goCommand);
+    },
+
+    /** Настроить силу под режим: level=null — полная сила (анализ/подсказки). */
+    configureStrength(levelKey) {
+        const level = levelKey ? DIFFICULTY_LEVELS[levelKey] : null;
+        if (level && level.elo) {
+            this.send("setoption name UCI_LimitStrength value true");
+            this.send(`setoption name UCI_Elo value ${level.elo}`);
+        } else {
+            this.send("setoption name UCI_LimitStrength value false");
+        }
+        this.goCommand = level ? level.go : GO_COMMAND;
     },
 };
 
@@ -291,6 +316,10 @@ function makeMove(moveObj) {
     checkGameOver();
     if (!state.gameOver) requestAnalysis();
     if (isDrillMode()) drillOnMoved();
+    // Обычная игра: бот отвечает сам, как только досчитает.
+    if (state.mode === "casual" && !state.gameOver && state.game.turn() !== state.playerColor) {
+        state.engineMoveRequested = true;
+    }
     renderAll();
 }
 
@@ -314,6 +343,10 @@ function onEngineMoveClick() {
 function undoMove() {
     if (state.game.history().length === 0) return;
     state.game.undo();
+    // Против бота откатываем пару «ответ бота + свой ход», чтобы очередь вернулась игроку.
+    if (state.mode === "casual" && state.game.turn() !== state.playerColor && state.game.history().length > 0) {
+        state.game.undo();
+    }
     state.gameOver = false;
     state.lastMove = null;
     state.lastMoveReview = null;
@@ -420,6 +453,7 @@ function renderArrow() {
     const a = state.analysis;
     // В загадке стрелка запрещена (спойлер), в просмотре партий — показываем лучший ход.
     if (isDrillMode() && (!state.drill || state.drill.phase !== "replay")) return;
+    if (state.mode === "casual") return; // честная игра — без подсказок
     if (state.gameOver || !a || !a.bestUci || a.fen !== state.game.fen()) return;
     const from = squareToXY(a.bestUci.slice(0, 2));
     const to = squareToXY(a.bestUci.slice(2, 4));
@@ -437,6 +471,8 @@ function onSquareClick(sq) {
     if (state.gameOver || state.pendingPromotion) return;
     // Тренировка дебютов: клики только в фазе загадки и только в свой ход.
     if (isDrillMode() && (!state.drill || state.drill.phase !== "quiz" || drillShouldAuto())) return;
+    // Обычная игра: за бота ходить нельзя.
+    if (state.mode === "casual" && state.game.turn() !== state.playerColor) return;
     const piece = state.game.get(sq);
     if (state.selected) {
         if (sq === state.selected) { state.selected = null; renderBoard(); return; }
@@ -460,7 +496,7 @@ function renderPromotionDialog() {
     const color = state.game.turn();
     for (const pt of ["q", "r", "b", "n"]) {
         const btn = document.createElement("button");
-        btn.className = "promo-btn";
+        btn.className = "promo-btn " + (color === "w" ? "white-piece" : "black-piece");
         btn.textContent = UNICODE_PIECES[color][pt];
         btn.addEventListener("click", () => {
             const p = state.pendingPromotion;
@@ -925,6 +961,15 @@ function renderEvalBar() {
 function renderRecommendation() {
     const box = $("recommend-box");
     if (isDrillMode()) { renderDrillPanel(box); return; }
+    if (state.mode === "casual") {
+        // Честная игра: никаких подсказок — только статус бота.
+        const level = DIFFICULTY_LEVELS[state.difficulty];
+        const botTurn = !state.gameOver && state.game.turn() !== state.playerColor;
+        box.innerHTML = `<h3>⚔️ Игра против Stockfish</h3>
+            <p>Уровень: <b>${level.name}</b></p>
+            <p class="${botTurn ? "muted" : "drill-your-turn"}">${state.gameOver ? "Партия окончена." : (botTurn ? "Бот думает…" : "Твой ход!")}</p>`;
+        return;
+    }
     const a = state.analysis;
     if (state.gameOver) { box.innerHTML = "<h3>Партия окончена</h3>"; return; }
     if (!a || !a.bestSan) {
@@ -1220,7 +1265,9 @@ function renderTurnIndicator() {
         $("turn-indicator").textContent = drillShouldAuto() ? "Ходит тренажёр…" : `Ход ${name} — вы`;
         return;
     }
-    const yours = turn === state.playerColor ? " (вы)" : " (противник — можно нажать «Ходи»)";
+    const yours = turn === state.playerColor
+        ? " (вы)"
+        : (state.mode === "casual" ? " (бот думает…)" : " (противник — жми «Ход Stockfish»)");
     $("turn-indicator").textContent = `Ход ${name}${yours}`;
 }
 
@@ -1239,7 +1286,12 @@ function renderAll() {
 // ---------------- Настройка партии ----------------
 function startGame() {
     state.playerColor = document.querySelector("input[name='color']:checked").value;
-    state.mode = document.querySelector("input[name='mode']:checked").value;
+    // «Дебюты» — зонтичный пункт: реальный режим выбирается на шаге 3.
+    const topMode = document.querySelector("input[name='mode']:checked").value;
+    state.openingsFlow = topMode === "openings";
+    state.mode = state.openingsFlow
+        ? document.querySelector("input[name='openings-submode']:checked").value
+        : topMode;
     state.game = new Chess();
     state.selected = null;
     state.lastMove = null;
@@ -1250,10 +1302,20 @@ function startGame() {
     $("game-screen").classList.remove("hidden");
     $("game-status").classList.add("hidden");
     $("mode-badge").textContent = MODE_BADGES[state.mode];
-    // В тренировке дебютов движковые кнопки и полоса оценки спрятаны — они раскрыли бы ответ.
-    $("btn-engine-move").classList.toggle("hidden", isDrillMode());
+    // Кнопки движка и полоса оценки: в тренировке дебютов раскрыли бы ответ,
+    // в обычной игре — подсказки запрещены, бот ходит сам.
+    $("btn-engine-move").classList.toggle("hidden", isDrillMode() || state.mode === "casual");
     $("btn-undo").classList.toggle("hidden", isDrillMode());
-    $("eval-bar").classList.toggle("hidden", isDrillMode());
+    $("eval-bar").classList.toggle("hidden", isDrillMode() || state.mode === "casual");
+    // Сила движка: в обычной игре — по выбранной сложности, иначе полная (для анализа).
+    if (state.mode === "casual") {
+        const diffRadio = document.querySelector("input[name='difficulty']:checked");
+        state.difficulty = diffRadio ? diffRadio.value : "club";
+        engine.configureStrength(state.difficulty);
+        if (state.playerColor === "b") state.engineMoveRequested = true; // бот-белые начинают
+    } else {
+        engine.configureStrength(null);
+    }
     if (state.mode === "learn") {
         // Учим выбранный дебют выбранным цветом.
         const chosen = DRILLS.find((x) => x.id === $("learn-opening").value) || DRILLS[0];
@@ -1263,7 +1325,13 @@ function startGame() {
     if (state.mode === "drill") {
         const forced = state.drillForceId ? DRILLS.find((x) => x.id === state.drillForceId) : null;
         state.drillForceId = null;
-        startDrill(forced || pickDrill(null));
+        if (state.openingsFlow) {
+            // Тренируем ВЫБРАННЫЙ дебют выбранным цветом (по памяти).
+            const chosen = DRILLS.find((x) => x.id === $("learn-opening").value) || DRILLS[0];
+            startDrill(chosen, { color: state.playerColor });
+        } else {
+            startDrill(forced || pickDrill(null));
+        }
         return;
     }
     state.drill = null;
@@ -1280,17 +1348,20 @@ function backToSetup() {
     // Всегда возвращаемся на шаг 1 (выбор режима).
     $("setup-step1").classList.remove("hidden");
     $("setup-step2").classList.add("hidden");
+    $("setup-step3").classList.add("hidden");
 }
 
-/** Шаг 1 → шаг 2 (или сразу старт, если режиму не нужны параметры). */
+/** Шаг 1 → шаг 2: параметры режима (для «Дебютов» — сначала дебют+цвет, потом шаг 3). */
 function setupContinue() {
     const mode = document.querySelector("input[name='mode']:checked").value;
-    if (mode === "drill") { startGame(); return; } // цвет и дебют случайные — шага 2 нет
-    $("learn-picker").classList.toggle("hidden", mode !== "learn");
+    $("learn-picker").classList.toggle("hidden", mode !== "openings");
+    $("difficulty-fieldset").classList.toggle("hidden", mode !== "casual");
+    $("btn-start").classList.toggle("hidden", mode === "openings");
+    $("btn-continue2").classList.toggle("hidden", mode !== "openings");
     $("setup-hint").textContent = MODE_HINTS[mode] || "";
     $("setup-step1").classList.add("hidden");
     $("setup-step2").classList.remove("hidden");
-    if (mode === "learn") renderLearnPreview();
+    if (mode === "openings") renderLearnPreview();
 }
 
 /** Превью выбранного дебюта: диаграмма финальной позиции линии + шансы за оба цвета. */
@@ -1321,11 +1392,26 @@ function renderLearnPreview() {
 // ---------------- Инициализация ----------------
 document.addEventListener("DOMContentLoaded", () => {
     $("btn-start").addEventListener("click", startGame);
+    $("btn-start3").addEventListener("click", startGame);
     $("btn-continue").addEventListener("click", setupContinue);
+    $("btn-continue2").addEventListener("click", () => {
+        $("setup-step2").classList.add("hidden");
+        $("setup-step3").classList.remove("hidden");
+    });
     $("btn-back-step").addEventListener("click", () => {
         $("setup-step2").classList.add("hidden");
         $("setup-step1").classList.remove("hidden");
     });
+    $("btn-back-step3").addEventListener("click", () => {
+        $("setup-step3").classList.add("hidden");
+        $("setup-step2").classList.remove("hidden");
+    });
+    // Табы панели: Анализ / Ходы.
+    document.querySelectorAll(".ptab").forEach((t) => t.addEventListener("click", () => {
+        document.querySelectorAll(".ptab").forEach((x) => x.classList.toggle("active", x === t));
+        $("tab-analysis").classList.toggle("hidden", t.dataset.tab !== "analysis");
+        $("tab-moves").classList.toggle("hidden", t.dataset.tab !== "moves");
+    }));
     $("btn-engine-move").addEventListener("click", onEngineMoveClick);
     $("btn-undo").addEventListener("click", undoMove);
     $("btn-new-game").addEventListener("click", backToSetup);
@@ -1348,10 +1434,22 @@ document.addEventListener("DOMContentLoaded", () => {
         const color = params.get("color") === "b" ? "b" : "w";
         const modeParam = params.get("mode");
         const mode = (modeParam === "casual" || modeParam === "tutor" || modeParam === "drill" || modeParam === "learn") ? modeParam : "training";
-        if (params.get("drill")) state.drillForceId = params.get("drill");
-        if (mode === "learn" && params.get("drill")) $("learn-opening").value = params.get("drill");
+        if (params.get("drill")) {
+            state.drillForceId = params.get("drill");
+            $("learn-opening").value = params.get("drill");
+        }
+        const diffParam = params.get("difficulty");
+        if (diffParam && DIFFICULTY_LEVELS[diffParam]) {
+            document.querySelector(`input[name='difficulty'][value='${diffParam}']`).checked = true;
+        }
         document.querySelector(`input[name='color'][value='${color}']`).checked = true;
-        document.querySelector(`input[name='mode'][value='${mode}']`).checked = true;
+        // Дебютные режимы в UI живут под зонтиком «Дебюты» — радио выставляются парой.
+        if (mode === "learn" || mode === "drill" || mode === "tutor") {
+            document.querySelector("input[name='mode'][value='openings']").checked = true;
+            document.querySelector(`input[name='openings-submode'][value='${mode}']`).checked = true;
+        } else {
+            document.querySelector(`input[name='mode'][value='${mode}']`).checked = true;
+        }
         startGame();
     }
 });

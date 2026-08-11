@@ -134,8 +134,18 @@ legend { padding: 0 8px; color: var(--accent-2); font-weight: 600; }
     display: flex; align-items: center; justify-content: center;
     width: 88%; height: 88%; border-radius: 50%;
 }
-.white-piece { color: #fdfdfd; text-shadow: 0 0 3px #333, 0 2px 3px rgba(0,0,0,0.6); }
-.black-piece { color: #151412; text-shadow: 0 0 2px rgba(255,255,255,0.25); }
+/* Оба цвета — залитый глиф ♚♛♜…; белые красятся в белый с тёмной обводкой —
+   одинаковый рендер и размер на любой платформе (iOS/Android/десктоп). */
+.white-piece {
+    color: #f8f6ef;
+    text-shadow: -1px -1px 0 #464034, 1px -1px 0 #464034, -1px 1px 0 #464034, 1px 1px 0 #464034,
+        0 2px 4px rgba(0, 0, 0, 0.45);
+}
+.black-piece {
+    color: #17150f;
+    text-shadow: -1px -1px 0 rgba(240, 230, 208, 0.45), 1px -1px 0 rgba(240, 230, 208, 0.45),
+        -1px 1px 0 rgba(240, 230, 208, 0.45), 1px 1px 0 rgba(240, 230, 208, 0.45);
+}
 /* Подложка под чёрными фигурами — иначе они сливаются с тёмными клетками.
    Фон только при классе цвета: пустая клетка тоже содержит span.piece. */
 .piece.black-piece {
@@ -182,6 +192,24 @@ legend { padding: 0 8px; color: var(--accent-2); font-weight: 600; }
 /* ---------- Панели ---------- */
 .panel-box { background: var(--panel); border-radius: 12px; padding: 16px 18px; }
 .panel-box h3 { font-size: 1.02em; margin-bottom: 10px; color: var(--accent-2); }
+.panel-box:empty { display: none; } /* пустые панели не рисуем */
+
+/* Табы панели: Анализ / Ходы */
+.panel-tabs { display: flex; gap: 8px; }
+.ptab {
+    flex: 1; border: none; border-radius: 10px 10px 0 0; padding: 10px 12px; cursor: pointer;
+    background: var(--panel-2); color: var(--muted); font-family: inherit; font-size: 0.95em;
+    font-weight: 600; transition: background 0.15s, color 0.15s;
+}
+.ptab.active { background: var(--panel); color: var(--accent-2); }
+.tab-page { display: flex; flex-direction: column; gap: 14px; }
+.history-tall { max-height: 60vh; }
+
+/* Широкий экран: содержимое «Анализа» в две колонки */
+@media (min-width: 1101px) {
+    .tab-page:not(.hidden) { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; align-items: start; }
+    #tab-moves.tab-page:not(.hidden) { grid-template-columns: 1fr; }
+}
 
 .rec-move { font-size: 2em; font-weight: 700; margin: 4px 0; }
 .rec-meta { color: var(--muted); font-size: 0.9em; margin-bottom: 6px; }
@@ -294,8 +322,8 @@ legend { padding: 0 8px; color: var(--accent-2); font-weight: 600; }
 .mc { display: flex; align-items: center; justify-content: center; user-select: none; }
 .ml { background: var(--light-sq); }
 .md { background: var(--dark-sq); }
-.mw { color: #fdfdfd; text-shadow: 0 0 2px #333, 0 1px 2px rgba(0,0,0,0.5); }
-.mb { color: #151412; text-shadow: 0 0 2px rgba(255,255,255,0.3); }
+.mw { color: #f8f6ef; text-shadow: -1px 0 0 #464034, 1px 0 0 #464034, 0 -1px 0 #464034, 0 1px 0 #464034; }
+.mb { color: #17150f; text-shadow: 0 0 2px rgba(240, 230, 208, 0.4); }
 .learn-preview { margin-top: 12px; text-align: center; }
 .learn-stats-bar { margin-top: 10px; }
 .learn-my-color { color: var(--accent-2); }
@@ -372,4 +400,36 @@ legend { padding: 0 8px; color: var(--accent-2); font-weight: 600; }
     .game-layout { flex-direction: column; align-items: center; }
     :root { --board-size: min(92vw - 50px, 560px); }
     .panel-column { max-width: none; width: 100%; }
+}
+
+/* Телефон (вертикалка): компактно, доска и управление — в один экран */
+@media (max-width: 700px) {
+    :root { --board-size: calc(100vw - 58px); }
+    body { font-size: 15px; }
+    .game-layout { padding: 8px; gap: 12px; }
+    .board-header { margin-bottom: 6px; flex-wrap: wrap; gap: 8px; }
+    .badge { font-size: 0.75em; padding: 3px 10px; }
+    #turn-indicator { font-size: 0.85em; }
+    .board-wrap { gap: 6px; }
+    #eval-bar { width: 18px; }
+    .captured-bar { margin: 3px 0 3px 24px; min-height: 24px; font-size: 0.8em; }
+    .cap-glyphs { font-size: 1.15em; min-width: 44px; min-height: 22px; }
+    .pos-stats { margin: 0 0 4px 24px; font-size: 0.76em; gap: 6px; flex-wrap: wrap; }
+    .ps-bar { width: 90px; }
+    .controls { margin-top: 8px; gap: 6px; }
+    .controls .btn-primary, .controls .btn-secondary { padding: 10px 10px; font-size: 0.9em; flex: 1 1 auto; }
+    .panel-box { padding: 12px 12px; border-radius: 10px; }
+    .panel-box h3 { font-size: 0.98em; }
+    .rec-move { font-size: 1.5em; }
+    .setup-card { padding: 20px 16px; border-radius: 12px; }
+    .setup-card h1 { font-size: 1.7em; }
+    .radio-card { padding: 8px 8px; gap: 8px; }
+    .radio-card small { font-size: 0.78em; }
+    .rc-icon { font-size: 1.3em; width: 28px; }
+    .modal-card { padding: 16px 14px; max-height: 94vh; }
+    .modal-card h2 { font-size: 1.15em; }
+    .drill-actions button { flex: 1 1 auto; }
+    .mini-lg .mc, .mini-board.mini-lg .mc { width: 24px; height: 24px; font-size: 19px; }
+    .coord { font-size: calc(var(--board-size) / 16); }
+    .history { font-size: 0.9em; }
 }

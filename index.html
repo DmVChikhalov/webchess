@@ -32,22 +32,12 @@
                 <label class="radio-card">
                     <input type="radio" name="mode" value="casual">
                     <span class="rc-icon">⚔️</span>
-                    <span>Обычная игра<small>Только рекомендации лучшего хода, без подробного разбора</small></span>
+                    <span>Обычная игра<small>Честная партия против Stockfish без подсказок; уровень силы — от новичка до максимума</small></span>
                 </label>
                 <label class="radio-card">
-                    <input type="radio" name="mode" value="learn">
-                    <span class="rc-icon">📖</span>
-                    <span>Учить базовые дебюты<small>Выбери дебют и цвет — тренажёр прямо говорит, какую фигуру куда двигать и почему; соперник отвечает сам</small></span>
-                </label>
-                <label class="radio-card">
-                    <input type="radio" name="mode" value="drill">
-                    <span class="rc-icon">🎯</span>
-                    <span>Тренировка дебютов<small>Загадан дебют — определи его по первым ходам и играй лучшую линию. Цвет и дебют случайные; в конце — план, статистика, знаменитые партии</small></span>
-                </label>
-                <label class="radio-card">
-                    <input type="radio" name="mode" value="tutor">
-                    <span class="rc-icon">🧭</span>
-                    <span>Самоучитель дебютов<small>Ходить можно за обе стороны; «Ходи» делает ход движка за любую сторону. Панель: дебют, стратегия за вас и план соперника</small></span>
+                    <input type="radio" name="mode" value="openings">
+                    <span class="rc-icon">📚</span>
+                    <span>Дебюты<small>Сначала выбери дебют и цвет, затем занятие: учить с подсказками, тренировать по памяти или свободно разбирать</small></span>
                 </label>
             </fieldset>
             <button id="btn-continue" class="btn-primary">Продолжить</button>
@@ -56,10 +46,29 @@
         <!-- Шаг 2: параметры выбранного режима (цвет — только там, где он есть) -->
         <div id="setup-step2" class="hidden">
             <div id="learn-picker" class="learn-picker hidden">
-                <label for="learn-opening">Какой дебют учим:</label>
+                <label for="learn-opening">Дебют:</label>
                 <select id="learn-opening"></select>
                 <div id="learn-preview" class="learn-preview"></div>
             </div>
+            <fieldset id="difficulty-fieldset" class="hidden">
+                <legend>Сложность соперника</legend>
+                <label class="radio-card">
+                    <input type="radio" name="difficulty" value="novice">
+                    <span class="rc-icon">🐣</span><span>Новичок<small>≈1000 эло — прощает ошибки</small></span>
+                </label>
+                <label class="radio-card">
+                    <input type="radio" name="difficulty" value="club" checked>
+                    <span class="rc-icon">🎯</span><span>Средний<small>≈1500 эло — крепкий клубный игрок</small></span>
+                </label>
+                <label class="radio-card">
+                    <input type="radio" name="difficulty" value="strong">
+                    <span class="rc-icon">🔥</span><span>Максимум<small>≈2300 эло — уровень мастера</small></span>
+                </label>
+                <label class="radio-card">
+                    <input type="radio" name="difficulty" value="impossible">
+                    <span class="rc-icon">💀</span><span>Невозможный<small>Stockfish на полной силе — не выигрывают и гроссмейстеры</small></span>
+                </label>
+            </fieldset>
             <fieldset id="color-fieldset">
                 <legend>Ваш цвет (вы всегда снизу)</legend>
                 <label class="radio-card">
@@ -75,6 +84,33 @@
             <div class="setup-actions">
                 <button id="btn-back-step" class="btn-secondary">← Назад</button>
                 <button id="btn-start" class="btn-primary">Начать партию</button>
+                <button id="btn-continue2" class="btn-primary hidden">Продолжить →</button>
+            </div>
+        </div>
+
+        <!-- Шаг 3 (только «Дебюты»): чем заняться с выбранным дебютом -->
+        <div id="setup-step3" class="hidden">
+            <fieldset>
+                <legend>Как занимаемся</legend>
+                <label class="radio-card">
+                    <input type="radio" name="openings-submode" value="learn" checked>
+                    <span class="rc-icon">📖</span>
+                    <span>Учить<small>Тренажёр говорит каждый ход (подсветка на доске) и объясняет почему</small></span>
+                </label>
+                <label class="radio-card">
+                    <input type="radio" name="openings-submode" value="drill">
+                    <span class="rc-icon">🎯</span>
+                    <span>Тренировать по памяти<small>Играешь линию сам; неверный ход не проходит, подсказки нарастают с ошибками</small></span>
+                </label>
+                <label class="radio-card">
+                    <input type="radio" name="openings-submode" value="tutor">
+                    <span class="rc-icon">🧭</span>
+                    <span>Свободный разбор<small>Ходишь за обе стороны; панель показывает дебют, стратегию, статистику и выходы</small></span>
+                </label>
+            </fieldset>
+            <div class="setup-actions">
+                <button id="btn-back-step3" class="btn-secondary">← Назад</button>
+                <button id="btn-start3" class="btn-primary">Начать</button>
             </div>
         </div>
         <div id="engine-status" class="engine-status">Загрузка движка…</div>
@@ -103,19 +139,27 @@
             <div id="pos-stats" class="pos-stats hidden"></div>
             <div id="game-status" class="game-status hidden"></div>
             <div class="controls">
-                <button id="btn-engine-move" class="btn-primary">Ходи (лучший ход движка)</button>
-                <button id="btn-undo" class="btn-secondary">↩ Взять ход назад</button>
-                <button id="btn-new-game" class="btn-secondary">Новая партия</button>
+                <button id="btn-engine-move" class="btn-primary">⚡ Ход Stockfish</button>
+                <button id="btn-undo" class="btn-secondary">↩ Назад</button>
+                <button id="btn-new-game" class="btn-secondary">☰ Меню</button>
             </div>
         </div>
 
         <div class="panel-column">
-            <div id="tutor-box" class="panel-box hidden"></div>
-            <div id="recommend-box" class="panel-box"></div>
-            <div id="review-box" class="panel-box"></div>
-            <div class="panel-box">
-                <h3>Ходы партии</h3>
-                <div id="history-box" class="history"></div>
+            <div class="panel-tabs">
+                <button class="ptab active" data-tab="analysis">🧠 Анализ</button>
+                <button class="ptab" data-tab="moves">📜 Ходы</button>
+            </div>
+            <div id="tab-analysis" class="tab-page">
+                <div id="tutor-box" class="panel-box hidden"></div>
+                <div id="recommend-box" class="panel-box"></div>
+                <div id="review-box" class="panel-box"></div>
+            </div>
+            <div id="tab-moves" class="tab-page hidden">
+                <div class="panel-box">
+                    <h3>Ходы партии</h3>
+                    <div id="history-box" class="history history-tall"></div>
+                </div>
             </div>
         </div>
 
