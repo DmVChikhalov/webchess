@@ -329,6 +329,21 @@ legend { padding: 0 8px; color: var(--accent-2); font-weight: 600; }
 .learn-my-color { color: var(--accent-2); }
 .modal-diagram { text-align: center; margin-bottom: 12px; }
 
+.rating-badge { color: var(--accent-2); font-size: 1.05em; margin: 2px 0 10px; }
+.rating-badge b { font-size: 1.15em; }
+.cloud-sync { display: flex; gap: 10px; margin-top: 14px; justify-content: center; }
+.cloud-sync button {
+    background: none; border: none; color: var(--muted); cursor: pointer; font-family: inherit;
+    font-size: 0.82em; text-decoration: underline; text-underline-offset: 3px;
+}
+.cloud-sync button:hover { color: var(--accent-2); }
+.theory-select {
+    width: 100%; padding: 9px 10px; border-radius: 9px; border: 1px solid #3d3b34;
+    background: var(--panel-2); color: var(--text); font-family: inherit; font-size: 0.95em;
+    margin-bottom: 10px;
+}
+.theory-page-text { font-size: 0.97em; }
+
 .learn-picker { margin: 0 0 16px; }
 .learn-picker label { display: block; color: var(--accent-2); font-weight: 600; margin-bottom: 6px; }
 .learn-picker select {

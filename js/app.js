@@ -43,12 +43,118 @@ const PIECE_RU_FORMS = {
     q: ["ферзь", "ферзя", "ферзей"],
 };
 const EQUAL_MATERIAL_TEXT = "фигуры равны";
+// ---------------- Рейтинг игрока ----------------
+// Честные проценты по ТЗ: победа +2.5% от эло соперника/задачи, поражение −5%,
+// решение задачи +2.5%, неверная попытка −1.5%. Минимум рейтинга — 100.
+const RATING_KEY = "webchess_rating";
+const RATING_START = 800;
+const RATING_PCT = { win: 0.025, lose: 0.05, puzzleSolve: 0.025, puzzleFail: 0.015 };
+const RATING_MIN = 100;
+
+function getRating() {
+    const v = parseInt(localStorage.getItem(RATING_KEY) || "", 10);
+    return Number.isFinite(v) ? v : RATING_START;
+}
+
+function setRating(v) {
+    localStorage.setItem(RATING_KEY, String(Math.max(RATING_MIN, Math.round(v))));
+    renderRatingBadge();
+}
+
+/** Изменение рейтинга: pct от опорного эло (бота/задачи), знак = направление. */
+function ratingApply(refElo, pct, sign) {
+    const delta = Math.max(1, Math.round(refElo * pct)) * sign;
+    setRating(getRating() + delta);
+    return delta;
+}
+
+function renderRatingBadge() {
+    const el = $("rating-badge");
+    if (el) el.innerHTML = `🏅 Твой рейтинг: <b>${getRating()}</b>`;
+}
+
+// ---------------- Облачная синхронизация (GitHub Gist, опционально) ----------------
+// Личный кабинет без сервера: прогресс хранится в ПРИВАТНОМ gist пользователя.
+// Нужен персональный токен GitHub со скоупом gist (вводится один раз).
+const SYNC_TOKEN_KEY = "webchess_gh_token";
+const SYNC_GIST_KEY = "webchess_gh_gist";
+const SYNC_GIST_DESC = "webchess-progress";
+const SYNC_FILE = "webchess.json";
+
+function cloudToken() {
+    let t = localStorage.getItem(SYNC_TOKEN_KEY);
+    if (!t) {
+        t = prompt("Вставь GitHub-токен со скоупом «gist».\nСоздать: github.com/settings/tokens → Generate new token (classic) → отметь только gist.");
+        if (t) localStorage.setItem(SYNC_TOKEN_KEY, t.trim());
+    }
+    return t ? t.trim() : null;
+}
+
+async function cloudApi(path, method, body, token) {
+    const resp = await fetch("https://api.github.com" + path, {
+        method: method || "GET",
+        headers: { Authorization: "Bearer " + token, Accept: "application/vnd.github+json" },
+        body: body ? JSON.stringify(body) : undefined,
+    });
+    if (resp.status === 401) { localStorage.removeItem(SYNC_TOKEN_KEY); throw new Error("токен не подошёл (удалён — введи заново)"); }
+    if (!resp.ok) throw new Error("GitHub API: " + resp.status);
+    return resp.json();
+}
+
+async function cloudFindGist(token) {
+    const cached = localStorage.getItem(SYNC_GIST_KEY);
+    if (cached) return cached;
+    const gists = await cloudApi("/gists?per_page=100", "GET", null, token);
+    const g = gists.find((x) => x.description === SYNC_GIST_DESC);
+    if (g) { localStorage.setItem(SYNC_GIST_KEY, g.id); return g.id; }
+    return null;
+}
+
+async function cloudSave() {
+    const token = cloudToken();
+    if (!token) return;
+    const payload = {
+        elo: getRating(),
+        puzzlesSolved: puzzlesSolvedIds(),
+        theoryPos: theoryLoadPos(),
+        ts: new Date().toISOString(),
+    };
+    try {
+        const files = {}; files[SYNC_FILE] = { content: JSON.stringify(payload, null, 2) };
+        const gistId = await cloudFindGist(token);
+        if (gistId) await cloudApi("/gists/" + gistId, "PATCH", { files }, token);
+        else {
+            const g = await cloudApi("/gists", "POST", { description: SYNC_GIST_DESC, public: false, files }, token);
+            localStorage.setItem(SYNC_GIST_KEY, g.id);
+        }
+        alert(`Сохранено в облако: рейтинг ${payload.elo}, задач решено ${payload.puzzlesSolved.length}.`);
+    } catch (e) { alert("Не удалось сохранить: " + e.message); }
+}
+
+async function cloudLoad() {
+    const token = cloudToken();
+    if (!token) return;
+    try {
+        const gistId = await cloudFindGist(token);
+        if (!gistId) { alert("В облаке пока нет сохранения — сначала «Сохранить прогресс»."); return; }
+        const g = await cloudApi("/gists/" + gistId, "GET", null, token);
+        const data = JSON.parse(g.files[SYNC_FILE].content);
+        if (Number.isFinite(data.elo)) setRating(data.elo);
+        if (Array.isArray(data.puzzlesSolved)) localStorage.setItem(PUZZLE_STORAGE_KEY, JSON.stringify(data.puzzlesSolved));
+        if (data.theoryPos) theorySavePos(data.theoryPos.s || 0, data.theoryPos.p || 0);
+        renderRatingBadge();
+        alert(`Загружено: рейтинг ${data.elo}, задач решено ${(data.puzzlesSolved || []).length} (сохранение от ${data.ts ? data.ts.slice(0, 10) : "?"}).`);
+    } catch (e) { alert("Не удалось загрузить: " + e.message); }
+}
+
 const MODE_BADGES = {
     training: "Режим: тренировка",
     casual: "Режим: обычная игра",
     tutor: "Режим: самоучитель дебютов",
     drill: "Режим: тренировка дебютов",
     learn: "Режим: учим дебют",
+    puzzles: "Режим: задачи",
+    theory: "Режим: теория",
 };
 // Подсказка на 2-м шаге настройки — своя для каждого режима.
 const MODE_HINTS = {
@@ -77,6 +183,8 @@ const state = {
     drill: null,          // состояние тренировки дебютов {drill, phase, feedback, wrongTries, replayPly}
     drillForceId: null,   // ?drill=<id> — детерминированный выбор тренировки (тесты)
     difficulty: "club",   // уровень бота в обычной игре (ключ DIFFICULTY_LEVELS)
+    puzzle: null,         // состояние задачи {p, idx, solved, fails, lastDelta}
+    theory: null,         // позиция в учебнике {s, p}
 };
 
 // ---------------- Движок ----------------
@@ -192,6 +300,7 @@ function requestAnalysis() {
     // В тренировке дебютов движок молчит (рекомендация раскрыла бы загаданный ход) —
     // КРОМЕ просмотра исторических партий: там оценка показывает, где ошибались мастера.
     if (!engine.ready || state.gameOver) return;
+    if (state.mode === "puzzles" || state.mode === "theory") return; // движок не нужен
     if (isDrillMode() && (!state.drill || state.drill.phase !== "replay")) return;
     state.analysisId++;
     const fen = state.game.fen();
@@ -273,6 +382,7 @@ function updateAfterEvalTick() {
 function tryMove(from, to) {
     const legal = state.game.moves({ square: from, verbose: true }).find((m) => m.to === to);
     if (!legal) return false;
+    if (state.mode === "puzzles") return puzzleTryMove(legal);
     if (isDrillMode()) return drillTryMove(legal);
     if (legal.flags.includes("p")) {
         state.pendingPromotion = { from, to };
@@ -372,6 +482,19 @@ function checkGameOver() {
     else if (g.in_threefold_repetition()) text = "Ничья: троекратное повторение.";
     else if (g.insufficient_material()) text = "Ничья: недостаточно материала.";
     else text = "Ничья: правило 50 ходов.";
+    // Рейтинг за обычную игру против бота: +2.5% эло бота за победу, −5% за поражение.
+    if (state.mode === "casual") {
+        const botElo = DIFFICULTY_LEVELS[state.difficulty].approx;
+        if (g.in_checkmate()) {
+            const playerWon = (g.turn() === "w" ? "b" : "w") === state.playerColor;
+            const delta = playerWon
+                ? ratingApply(botElo, RATING_PCT.win, +1)
+                : ratingApply(botElo, RATING_PCT.lose, -1);
+            text += ` Рейтинг ${delta > 0 ? "+" + delta : delta} → ${getRating()}.`;
+        } else {
+            text += " Рейтинг без изменений (ничья).";
+        }
+    }
     $("game-status").textContent = text;
     $("game-status").classList.remove("hidden");
 }
@@ -415,11 +538,15 @@ function renderBoard() {
     const legalTargets = state.selected
         ? state.game.moves({ square: state.selected, verbose: true }).map((m) => m.to)
         : [];
-    // Учебный режим: подсветка клеток нужного хода.
+    // Учебный режим: подсветка клеток нужного хода. Теория: подсветка иллюстрации.
     let teachFrom = null, teachTo = null;
     if (isDrillMode() && state.drill && state.drill.teach && state.drill.phase === "quiz" && !drillShouldAuto()) {
         const exp = drillExpectedVerbose();
         if (exp) { teachFrom = exp.from; teachTo = exp.to; }
+    }
+    if (state.mode === "theory" && state.theory) {
+        const page = THEORY_SECTIONS[state.theory.s].pages[state.theory.p];
+        if (page.hl) { teachFrom = page.hl[0]; teachTo = page.hl[1]; }
     }
     for (const cell of cells) {
         const sq = cell.dataset.square;
@@ -455,7 +582,7 @@ function renderArrow() {
     const a = state.analysis;
     // В загадке стрелка запрещена (спойлер), в просмотре партий — показываем лучший ход.
     if (isDrillMode() && (!state.drill || state.drill.phase !== "replay")) return;
-    if (state.mode === "casual") return; // честная игра — без подсказок
+    if (state.mode === "casual" || state.mode === "puzzles" || state.mode === "theory") return; // без подсказок
     if (state.gameOver || !a || !a.bestUci || a.fen !== state.game.fen()) return;
     const from = squareToXY(a.bestUci.slice(0, 2));
     const to = squareToXY(a.bestUci.slice(2, 4));
@@ -475,6 +602,9 @@ function onSquareClick(sq) {
     if (isDrillMode() && (!state.drill || state.drill.phase !== "quiz" || drillShouldAuto())) return;
     // Обычная игра: за бота ходить нельзя.
     if (state.mode === "casual" && state.game.turn() !== state.playerColor) return;
+    // Теория — доска-иллюстрация; в задаче ходит только решающий.
+    if (state.mode === "theory") return;
+    if (state.mode === "puzzles" && (!state.puzzle || state.puzzle.solved || state.game.turn() !== state.playerColor)) return;
     const piece = state.game.get(sq);
     if (state.selected) {
         if (sq === state.selected) { state.selected = null; renderBoard(); return; }
@@ -508,6 +638,133 @@ function renderPromotionDialog() {
         box.appendChild(btn);
     }
     overlay.appendChild(box);
+}
+
+// ---------------- Задачи (рейтинг) ----------------
+const PUZZLE_OPP_DELAY_MS = 550; // пауза перед ответом соперника в задаче
+
+function startPuzzle(excludeId) {
+    const p = pickPuzzle(excludeId || (state.puzzle ? state.puzzle.p.id : null));
+    state.puzzle = { p, idx: 0, solved: false, fails: 0, lastDelta: null };
+    state.game = new Chess(p.fen);
+    state.playerColor = state.game.turn(); // решающий всегда снизу
+    state.selected = null;
+    state.lastMove = null;
+    state.lastMoveReview = null;
+    state.gameOver = false;
+    state.engineMoveRequested = false;
+    buildBoard();
+    renderAll();
+}
+
+/** Попытка хода в задаче: применяется только ход решения. */
+function puzzleTryMove(legal) {
+    const z = state.puzzle;
+    if (!z || z.solved) return false;
+    const expected = z.p.solution[z.idx];
+    if (drillNorm(legal.san) === drillNorm(expected)) {
+        state.game.move({ from: legal.from, to: legal.to, promotion: legal.promotion });
+        state.lastMove = state.game.history({ verbose: true }).slice(-1)[0];
+        state.selected = null;
+        z.idx++;
+        if (z.idx >= z.p.solution.length) {
+            z.solved = true;
+            puzzleMarkSolved(z.p.id);
+            z.lastDelta = ratingApply(z.p.rating, RATING_PCT.puzzleSolve, +1);
+        } else {
+            // Единственный ответ соперника из решения — с паузой.
+            setTimeout(() => {
+                if (!state.puzzle || state.puzzle !== z || z.solved) return;
+                state.game.move(z.p.solution[z.idx]);
+                state.lastMove = state.game.history({ verbose: true }).slice(-1)[0];
+                z.idx++;
+                renderAll();
+            }, PUZZLE_OPP_DELAY_MS);
+        }
+        renderAll();
+        return true;
+    }
+    z.fails++;
+    z.lastDelta = ratingApply(z.p.rating, RATING_PCT.puzzleFail, -1);
+    state.selected = null;
+    renderAll();
+    return true;
+}
+
+function renderPuzzlePanel(box) {
+    const z = state.puzzle;
+    if (!z) { box.innerHTML = ""; return; }
+    const sideName = state.playerColor === "w" ? "белых" : "чёрных";
+    let html = `<h3>🧩 ${z.p.title} <span class="muted">(сложность ${z.p.rating})</span></h3>
+        <p class="muted">${z.p.source}</p>`;
+    if (z.solved) {
+        html += `<div class="drill-correct">✅ Решено! Рейтинг +${z.lastDelta} → <b>${getRating()}</b></div>
+            <div class="drill-actions"><button id="puzzle-next" class="btn-primary">🧩 Следующая задача</button></div>`;
+    } else {
+        html += `<p class="drill-your-turn">Ход ${sideName} — найди сильнейшее продолжение.</p>`;
+        if (z.fails > 0 && z.lastDelta !== null && z.lastDelta < 0) {
+            html += `<div class="drill-wrong">❌ Неверно (−${-z.lastDelta} рейтинга). Пробуй ещё — решение на доске есть.</div>`;
+        }
+        html += `<div class="drill-actions"><button id="puzzle-skip" class="btn-secondary">Пропустить →</button></div>`;
+    }
+    html += `<p class="stats-caption">Решено задач: ${puzzlesSolvedIds().length} / ${PUZZLES.length} · 🏅 рейтинг ${getRating()}</p>`;
+    box.innerHTML = html;
+    if ($("puzzle-next")) $("puzzle-next").addEventListener("click", () => startPuzzle());
+    if ($("puzzle-skip")) $("puzzle-skip").addEventListener("click", () => startPuzzle());
+}
+
+// ---------------- Теория ----------------
+function startTheory() {
+    const pos = theoryLoadPos();
+    state.theory = { s: Math.min(pos.s, THEORY_SECTIONS.length - 1), p: pos.p };
+    theoryShowPage();
+}
+
+function theoryShowPage() {
+    const t = state.theory;
+    const section = THEORY_SECTIONS[t.s];
+    t.p = Math.max(0, Math.min(t.p, section.pages.length - 1));
+    const page = section.pages[t.p];
+    state.game = new Chess();
+    if (page.fen && page.fen !== "start") state.game.load(page.fen);
+    state.playerColor = "w";
+    state.lastMove = null;
+    state.selected = null;
+    state.gameOver = false;
+    theorySavePos(t.s, t.p);
+    buildBoard();
+    renderAll();
+}
+
+function renderTheoryPanel(box) {
+    const t = state.theory;
+    if (!t) { box.innerHTML = ""; return; }
+    const section = THEORY_SECTIONS[t.s];
+    const page = section.pages[t.p];
+    const options = THEORY_SECTIONS.map((s, i) =>
+        `<option value="${i}" ${i === t.s ? "selected" : ""}>Ур. ${s.level} — ${s.title}</option>`).join("");
+    let html = `<h3>🎓 Теория</h3>
+        <select id="theory-section" class="theory-select">${options}</select>
+        <div class="drill-note theory-page-text">${page.text}</div>
+        <div class="drill-actions">
+            <button id="theory-prev" class="btn-secondary" ${t.p === 0 && t.s === 0 ? "disabled" : ""}>◀ Назад</button>
+            <span class="drill-replay-pos">стр. ${t.p + 1}/${section.pages.length}</span>
+            <button id="theory-next" class="btn-primary">Дальше ▶</button>
+        </div>`;
+    box.innerHTML = html;
+    $("theory-section").addEventListener("change", (e) => {
+        t.s = parseInt(e.target.value, 10); t.p = 0; theoryShowPage();
+    });
+    $("theory-prev").addEventListener("click", () => {
+        if (t.p > 0) { t.p--; }
+        else if (t.s > 0) { t.s--; t.p = THEORY_SECTIONS[t.s].pages.length - 1; }
+        theoryShowPage();
+    });
+    $("theory-next").addEventListener("click", () => {
+        if (t.p < section.pages.length - 1) { t.p++; }
+        else if (t.s < THEORY_SECTIONS.length - 1) { t.s++; t.p = 0; }
+        theoryShowPage();
+    });
 }
 
 // ---------------- Тренировка дебютов ----------------
@@ -962,6 +1219,8 @@ function renderEvalBar() {
 
 function renderRecommendation() {
     const box = $("recommend-box");
+    if (state.mode === "puzzles") { renderPuzzlePanel(box); return; }
+    if (state.mode === "theory") { renderTheoryPanel(box); return; }
     if (isDrillMode()) { renderDrillPanel(box); return; }
     if (state.mode === "casual") {
         // Честная игра: никаких подсказок — только статус бота.
@@ -1258,6 +1517,11 @@ function renderHistory() {
 }
 
 function renderTurnIndicator() {
+    if (state.mode === "theory") { $("turn-indicator").textContent = "Учебник — доска-иллюстрация"; return; }
+    if (state.mode === "puzzles") {
+        $("turn-indicator").textContent = state.puzzle && state.puzzle.solved ? "Решено!" : "Найди лучший ход";
+        return;
+    }
     if (state.gameOver) { $("turn-indicator").textContent = ""; return; }
     const turn = state.game.turn();
     const name = turn === "w" ? "белых" : "чёрных";
@@ -1306,9 +1570,10 @@ function startGame() {
     $("mode-badge").textContent = MODE_BADGES[state.mode];
     // Кнопки движка и полоса оценки: в тренировке дебютов раскрыли бы ответ,
     // в обычной игре — подсказки запрещены, бот ходит сам.
-    $("btn-engine-move").classList.toggle("hidden", isDrillMode() || state.mode === "casual");
-    $("btn-undo").classList.toggle("hidden", isDrillMode());
-    $("eval-bar").classList.toggle("hidden", isDrillMode() || state.mode === "casual");
+    const noEngineUi = isDrillMode() || state.mode === "casual" || state.mode === "puzzles" || state.mode === "theory";
+    $("btn-engine-move").classList.toggle("hidden", noEngineUi);
+    $("btn-undo").classList.toggle("hidden", isDrillMode() || state.mode === "puzzles" || state.mode === "theory");
+    $("eval-bar").classList.toggle("hidden", noEngineUi);
     // Сила движка: в обычной игре — по выбранной сложности, иначе полная (для анализа).
     if (state.mode === "casual") {
         const diffRadio = document.querySelector("input[name='difficulty']:checked");
@@ -1318,6 +1583,8 @@ function startGame() {
     } else {
         engine.configureStrength(null);
     }
+    if (state.mode === "puzzles") { startPuzzle(); return; }
+    if (state.mode === "theory") { startTheory(); return; }
     if (state.mode === "learn") {
         // Учим выбранный дебют выбранным цветом.
         const chosen = DRILLS.find((x) => x.id === $("learn-opening").value) || DRILLS[0];
@@ -1356,6 +1623,7 @@ function backToSetup() {
 /** Шаг 1 → шаг 2: параметры режима (для «Дебютов» — сначала дебют+цвет, потом шаг 3). */
 function setupContinue() {
     const mode = document.querySelector("input[name='mode']:checked").value;
+    if (mode === "puzzles" || mode === "theory") { startGame(); return; } // параметров нет
     $("learn-picker").classList.toggle("hidden", mode !== "openings");
     $("difficulty-fieldset").classList.toggle("hidden", mode !== "casual");
     $("btn-start").classList.toggle("hidden", mode === "openings");
@@ -1424,6 +1692,9 @@ document.addEventListener("DOMContentLoaded", () => {
         r.addEventListener("change", () => {
             if (!$("learn-picker").classList.contains("hidden")) renderLearnPreview();
         }));
+    renderRatingBadge();
+    $("btn-cloud-save").addEventListener("click", cloudSave);
+    $("btn-cloud-load").addEventListener("click", cloudLoad);
     setEngineStatus("Загрузка движка…");
     engine.init();
 

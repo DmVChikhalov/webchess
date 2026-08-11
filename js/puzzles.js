@@ -43,16 +43,16 @@ const PUZZLES = [
         title: "Мат в 1 ход", source: "Взятие с матом: ферзь защищал последнюю горизонталь один",
     },
     {
-        id: "m1-backrank-b", fen: "r5k1/5ppp/8/8/8/8/5PPP/1Q4K1 w - - 0 1",
+        id: "m1-backrank-b", fen: "r5k1/5ppp/8/8/8/8/5PPP/Q5K1 w - - 0 1",
         solution: ["Qxa8#"], rating: 900,
         title: "Мат в 1 ход", source: "Незащищённая ладья на последней — взятие оказывается матом",
     },
 
     // ---------- Мат в 2 (форсированные, все ответы единственные) ----------
     {
-        id: "m2-ladder", fen: "1k6/8/8/8/8/8/R7/1R4K1 w - - 0 1",
-        solution: ["Ra7", "Kc8", "Rb8#"], rating: 1300,
-        title: "Мат в 2 хода", source: "«Лестница» двумя ладьями: одна отрезает, вторая матует",
+        id: "m3-legal", fen: "rn1qkbnr/ppp2p1p/3p2p1/4p3/2B1P1b1/2N2N2/PPPP1PPP/R1BQK2R w KQkq - 0 1",
+        solution: ["Nxe5", "Bxd1", "Bxf7+", "Ke7", "Nd5#"], rating: 1500,
+        title: "Мат в 3 хода", source: "Мат Легаля (Париж, 1750): «жертва» ферзя, которую нельзя принимать",
     },
     {
         id: "m2-deflect", fen: "2r3k1/5ppp/8/8/Q7/8/5PPP/4R1K1 w - - 0 1",
@@ -61,7 +61,7 @@ const PUZZLES = [
     },
     {
         id: "m2-smothered", fen: "r5rk/6pp/7N/8/2Q5/8/8/6K1 w - - 0 1",
-        solution: ["Qg8+", "Rxg8", "Nf7#"], rating: 1600,
+        solution: ["Qxg8+", "Rxg8", "Nf7#"], rating: 1600,
         title: "Мат в 2 хода", source: "Полный спёртый мат: жертва ферзя на g8 и конь с f7 (Греко, 1620)",
     },
 

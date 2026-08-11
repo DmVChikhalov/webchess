@@ -18,7 +18,8 @@
 <div id="setup-screen" class="screen">
     <div class="setup-card">
         <h1>♞ WebChess</h1>
-        <p class="subtitle">Обучающие шахматы со Stockfish 18 — максимальная сила, разбор каждого хода с теорией и книжными сносками.</p>
+        <div id="rating-badge" class="rating-badge"></div>
+        <p class="subtitle">Обучающие шахматы со Stockfish — играй, учи дебюты, решай задачи и расти в рейтинге.</p>
 
         <!-- Шаг 1: режим -->
         <div id="setup-step1">
@@ -38,6 +39,16 @@
                     <input type="radio" name="mode" value="openings">
                     <span class="rc-icon">📚</span>
                     <span>Дебюты<small>Сначала выбери дебют и цвет, затем занятие: учить с подсказками, тренировать по памяти или свободно разбирать</small></span>
+                </label>
+                <label class="radio-card">
+                    <input type="radio" name="mode" value="puzzles">
+                    <span class="rc-icon">🧩</span>
+                    <span>Задачи<small>Маты и тактика из учебников; решение растит рейтинг, ошибки снимают</small></span>
+                </label>
+                <label class="radio-card">
+                    <input type="radio" name="mode" value="theory">
+                    <span class="rc-icon">🎓</span>
+                    <span>Теория<small>Пошаговый учебник с показом на доске: от правил и ходов до продвинутой стратегии</small></span>
                 </label>
             </fieldset>
             <button id="btn-continue" class="btn-primary">Продолжить</button>
@@ -114,6 +125,10 @@
             </div>
         </div>
         <div id="engine-status" class="engine-status">Загрузка движка…</div>
+        <div class="cloud-sync">
+            <button id="btn-cloud-save">☁ Сохранить прогресс (GitHub)</button>
+            <button id="btn-cloud-load">⬇ Загрузить прогресс</button>
+        </div>
     </div>
 </div>
 
@@ -172,6 +187,8 @@
 <script src="js/openings.js"></script>
 <script src="js/strategies.js"></script>
 <script src="js/drills.js"></script>
+<script src="js/puzzles.js"></script>
+<script src="js/theory.js"></script>
 <script src="js/explain.js"></script>
 <script src="js/app.js"></script>
 </body>
