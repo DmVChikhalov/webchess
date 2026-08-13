@@ -120,6 +120,8 @@ const state = {
     theory: null,         // позиция в учебнике {s, p}
     learnVariation: null, // выбранная вариация дебюта на экране настройки (id или null=главная)
     sparring: null,       // спарринг: {drill, line, varName} — дебют, который ведёт соперник
+    botHints: false,      // игра против бота: показывать подсказки полной силы (рейтинг тогда не идёт)
+    postReview: null,     // пост-партийный разбор {active, fens, hist, evals, idx, done}
 };
 
 /** Линия выбранной вариации дебюта (или главная). */
@@ -246,6 +248,11 @@ function requestAnalysis() {
     if (!engine.ready || state.gameOver) return;
     if (state.mode === "puzzles" || state.mode === "theory") return; // движок не нужен
     if (isDrillMode() && (!state.drill || state.drill.phase !== "replay")) return;
+    // Против бота: подсказка игроку считается ПОЛНОЙ силой, ход бота — выбранной.
+    if (isVsBot()) {
+        const forPlayerHint = state.game.turn() === state.playerColor && state.botHints;
+        engine.configureStrength(forPlayerHint ? null : state.difficulty);
+    }
     state.analysisId++;
     const fen = state.game.fen();
     state.analysis = {
@@ -304,6 +311,13 @@ function handleBestmove(line) {
     // Доигрывание исторической партии движком (просмотр в тренировке дебютов).
     if (isDrillMode() && state.drill && state.drill.phase === "replay" && state.drill.sfContinue) {
         drillSfTick();
+    }
+    // Пост-партийный разбор: записать оценку позиции и перейти к следующей.
+    if (state.postReview && state.postReview.active && a.fen === state.postReview.fens[state.postReview.idx]) {
+        state.postReview.evals[state.postReview.idx] = { cpW: whiteCp(a), bestSan: a.bestSan };
+        state.postReview.idx++;
+        postReviewNext();
+        return;
     }
     renderAll();
 }
@@ -449,10 +463,12 @@ function checkGameOver() {
     else if (g.in_threefold_repetition()) text = "Ничья: троекратное повторение.";
     else if (g.insufficient_material()) text = "Ничья: недостаточно материала.";
     else text = "Ничья: правило 50 ходов.";
-    // Рейтинг за игру против бота (обычная и спарринг): +2.5% эло за победу, −5% за поражение.
+    // Рейтинг за игру против бота: только БЕЗ подсказок (+2.5% эло за победу, −5% за поражение).
     if (isVsBot()) {
-        const botElo = DIFFICULTY_LEVELS[state.difficulty].approx;
-        if (g.in_checkmate()) {
+        if (state.botHints) {
+            text += " Учебная партия (с подсказками) — рейтинг не меняется.";
+        } else if (g.in_checkmate()) {
+            const botElo = DIFFICULTY_LEVELS[state.difficulty].approx;
             const playerWon = (g.turn() === "w" ? "b" : "w") === state.playerColor;
             const delta = playerWon
                 ? ratingApply(botElo, RATING_PCT.win, +1)
@@ -549,7 +565,9 @@ function renderArrow() {
     const a = state.analysis;
     // В загадке стрелка запрещена (спойлер), в просмотре партий — показываем лучший ход.
     if (isDrillMode() && (!state.drill || state.drill.phase !== "replay")) return;
-    if (isVsBot() || state.mode === "puzzles" || state.mode === "theory") return; // без подсказок
+    if (state.mode === "puzzles" || state.mode === "theory") return;
+    // Против бота: стрелка-подсказка только при включённых подсказках и на ходу игрока.
+    if (isVsBot() && (!state.botHints || state.game.turn() !== state.playerColor)) return;
     if (state.gameOver || !a || !a.bestUci || a.fen !== state.game.fen()) return;
     const from = squareToXY(a.bestUci.slice(0, 2));
     const to = squareToXY(a.bestUci.slice(2, 4));
@@ -605,6 +623,126 @@ function renderPromotionDialog() {
         box.appendChild(btn);
     }
     overlay.appendChild(box);
+}
+
+// ---------------- Пост-партийный разбор (игры против бота) ----------------
+const POSTREVIEW_GO = "go depth 14 movetime 700"; // быстрый, но честный анализ позиций
+// Пороги потери оценки (сантипешки): зевок / ошибка / неточность.
+const POSTREVIEW_BLUNDER = 250;
+const POSTREVIEW_MISTAKE = 120;
+const POSTREVIEW_INACCURACY = 60;
+const POSTREVIEW_TOP_N = 5;
+
+/** Запустить разбор сыгранной партии: движок полной силы оценивает каждую позицию. */
+function startPostReview() {
+    const hist = state.game.history({ verbose: true });
+    if (!hist.length) return;
+    const sim = new Chess();
+    const fens = [sim.fen()];
+    hist.forEach((m) => { sim.move({ from: m.from, to: m.to, promotion: m.promotion }); fens.push(sim.fen()); });
+    state.postReview = { active: true, fens, hist, evals: new Array(fens.length).fill(null), idx: 0, done: false };
+    engine.configureStrength(null);
+    engine.goCommand = POSTREVIEW_GO;
+    postReviewNext();
+}
+
+function postReviewNext() {
+    const pr = state.postReview;
+    if (!pr) return;
+    if (pr.idx >= pr.fens.length) {
+        pr.active = false;
+        pr.done = true;
+        engine.goCommand = GO_COMMAND;
+        renderAll();
+        return;
+    }
+    const fen = pr.fens[pr.idx];
+    state.analysisId++;
+    state.analysis = {
+        id: state.analysisId, fen, turn: fen.split(" ")[1],
+        bestUci: null, bestSan: null, cp: null, mate: null, depth: 0, pvSan: [], pvUci: [], done: false,
+    };
+    engine.analyze(fen);
+    renderAll();
+}
+
+/** Ошибки игрока по результатам разбора (отсортированы по потере). */
+function postReviewMistakes() {
+    const pr = state.postReview;
+    const res = [];
+    for (let i = 0; i < pr.hist.length; i++) {
+        const mv = pr.hist[i];
+        if (mv.color !== state.playerColor) continue;
+        const before = pr.evals[i];
+        const after = pr.evals[i + 1];
+        if (!before || !after || before.cpW === null || after.cpW === null) continue;
+        const sign = mv.color === "w" ? 1 : -1;
+        const loss = Math.max(0, (before.cpW - after.cpW) * sign);
+        res.push({ moveNo: Math.floor(i / 2) + 1, san: mv.san, loss, best: before.bestSan, color: mv.color });
+    }
+    res.sort((a, b) => b.loss - a.loss);
+    return res;
+}
+
+/** Блок разбора для панелей игр против бота (после конца партии). */
+function postReviewBlockHtml() {
+    const pr = state.postReview;
+    if (!state.gameOver) return "";
+    if (!pr) {
+        return `<div class="drill-actions"><button id="btn-postreview" class="btn-primary">📊 Разбор партии: что улучшить</button></div>`;
+    }
+    if (pr.active) {
+        return `<p class="muted">📊 Анализирую позиции… ${pr.idx}/${pr.fens.length}</p>`;
+    }
+    const all = postReviewMistakes();
+    const blunders = all.filter((x) => x.loss >= POSTREVIEW_BLUNDER).length;
+    const mistakes = all.filter((x) => x.loss >= POSTREVIEW_MISTAKE && x.loss < POSTREVIEW_BLUNDER).length;
+    const inacc = all.filter((x) => x.loss >= POSTREVIEW_INACCURACY && x.loss < POSTREVIEW_MISTAKE).length;
+    const avg = all.length ? all.reduce((s, x) => s + x.loss, 0) / all.length : 0;
+    const accuracy = Math.max(0, Math.min(100, 100 - avg / 6)).toFixed(0);
+    let html = `<div class="postreview"><h3>📊 Разбор твоей игры</h3>
+        <p>Точность ≈ <b>${accuracy}%</b> · зевков: <b>${blunders}</b> · ошибок: <b>${mistakes}</b> · неточностей: <b>${inacc}</b></p>`;
+    const worst = all.filter((x) => x.loss >= POSTREVIEW_INACCURACY).slice(0, POSTREVIEW_TOP_N);
+    if (worst.length) {
+        html += `<p><b>Главное, что стоило сыграть иначе:</b></p><ul class="postreview-list">`;
+        for (const w of worst) {
+            const tag = w.loss >= POSTREVIEW_BLUNDER ? "??" : (w.loss >= POSTREVIEW_MISTAKE ? "?" : "?!");
+            html += `<li>${w.moveNo}.${w.color === "b" ? ".." : ""} <b>${sanToRu(w.san)}${tag}</b> — потеря ${(w.loss / 100).toFixed(1)};
+                лучше было <b>${w.best ? sanToRu(w.best) : "—"}</b></li>`;
+        }
+        html += `</ul>`;
+    } else {
+        html += `<p class="drill-your-turn">Серьёзных ошибок нет — отличная партия!</p>`;
+    }
+    if (state.mode === "sparring" && state.sparring) {
+        const s = state.sparring;
+        let inBook = 0;
+        const h = state.game.history();
+        for (let i = 0; i < h.length && i < s.line.length; i++) {
+            if (drillNorm(h[i]) === drillNorm(s.line[i])) inBook++; else break;
+        }
+        html += `<p class="stats-caption">Дебют: вы продержались в книге ${Math.ceil(inBook / 2)} ход(а) из ${Math.ceil(s.line.length / 2)} — сравни свои ответы с линией в «Дебютах».</p>`;
+    }
+    html += `</div>`;
+    return html;
+}
+
+function attachPostReviewButton(box) {
+    const btn = box.querySelector("#btn-postreview");
+    if (btn) btn.addEventListener("click", startPostReview);
+}
+
+/** Подсказка лучшего хода (полная сила) на ходу игрока — если включена. */
+function botHintBlockHtml() {
+    if (!state.botHints || state.gameOver) return "";
+    if (state.game.turn() !== state.playerColor) return "";
+    const a = state.analysis;
+    if (!a || a.fen !== state.game.fen() || !a.bestSan) {
+        return `<div class="drill-teach">💡 Подсказка считается…</div>`;
+    }
+    const pv = a.pvSan.slice(0, 5).map(sanToRu).join(" ");
+    return `<div class="drill-teach">💡 Лучший ход: <b>${sanToRu(a.bestSan)}</b> (${formatEval(a)}, глубина ${a.depth})
+        ${pv ? `<div class="drill-teach-why">Линия: ${pv}</div>` : ""}</div>`;
 }
 
 // ---------------- Задачи (рейтинг) ----------------
@@ -1195,12 +1333,15 @@ function renderRecommendation() {
     if (state.mode === "theory") { renderTheoryPanel(box); return; }
     if (isDrillMode()) { renderDrillPanel(box); return; }
     if (state.mode === "casual") {
-        // Честная игра: никаких подсказок — только статус бота.
         const level = DIFFICULTY_LEVELS[state.difficulty];
         const botTurn = !state.gameOver && state.game.turn() !== state.playerColor;
-        box.innerHTML = `<h3>⚔️ Игра против Stockfish</h3>
-            <p>Уровень: <b>${level.name}</b></p>
+        let html = `<h3>⚔️ Игра против Stockfish</h3>
+            <p>Уровень: <b>${level.name}</b>${state.botHints ? " · 💡 учебная (с подсказками)" : ""}</p>
             <p class="${botTurn ? "muted" : "drill-your-turn"}">${state.gameOver ? "Партия окончена." : (botTurn ? "Бот думает…" : "Твой ход!")}</p>`;
+        html += botHintBlockHtml();
+        html += postReviewBlockHtml();
+        box.innerHTML = html;
+        attachPostReviewButton(box);
         return;
     }
     if (state.mode === "sparring") {
@@ -1217,7 +1358,10 @@ function renderRecommendation() {
             <p><b>${s.drill.info.name}</b>${s.varName ? ` <span class="muted">(${s.varName})</span>` : ""}</p>
             <p class="muted">Соперник: ${s.drill.player === "w" ? "белые" : "чёрные"} · после книги — Stockfish (${level.name})</p>
             <p class="stats-caption">${bookDone ? "📖 Книга дебюта закончилась — играет движок." : `📖 Соперник ведёт книжную линию (ход ${Math.ceil(h.length / 2)} из ${Math.ceil(s.line.length / 2)}).`}</p>
-            <p class="${botTurn ? "muted" : "drill-your-turn"}">${state.gameOver ? "Партия окончена." : (botTurn ? "Соперник думает…" : "Твой ход!")}</p>`;
+            <p class="${botTurn ? "muted" : "drill-your-turn"}">${state.gameOver ? "Партия окончена." : (botTurn ? "Соперник думает…" : "Твой ход!")}</p>`
+            + botHintBlockHtml()
+            + postReviewBlockHtml();
+        attachPostReviewButton(box);
         return;
     }
     const a = state.analysis;
@@ -1581,10 +1725,14 @@ function startGame() {
     if (isVsBot()) {
         const diffRadio = document.querySelector("input[name='difficulty']:checked");
         state.difficulty = diffRadio ? diffRadio.value : "club";
+        const hintsRadio = document.querySelector("input[name='hints']:checked");
+        state.botHints = hintsRadio ? hintsRadio.value === "on" : false;
         engine.configureStrength(state.difficulty);
     } else {
+        state.botHints = false;
         engine.configureStrength(null);
     }
+    state.postReview = null;
     if (state.mode === "casual" && state.playerColor === "b") state.engineMoveRequested = true; // бот-белые начинают
     if (state.mode !== "sparring") state.sparring = null;
     if (state.mode === "puzzles") { startPuzzle(); return; }
@@ -1657,6 +1805,7 @@ function setupContinue() {
     }
     $("learn-picker").classList.add("hidden");
     $("difficulty-fieldset").classList.toggle("hidden", mode !== "casual");
+    $("hints-fieldset").classList.toggle("hidden", mode !== "casual");
     $("color-fieldset").classList.remove("hidden");
     $("setup-hint").textContent = MODE_HINTS[mode] || "";
     $("setup-step2").classList.remove("hidden");
@@ -1669,9 +1818,10 @@ MODE_HINTS.sparring = "Выбери дебют СОПЕРНИКА и силу б
 function setupOpeningsParams() {
     const sub = document.querySelector("input[name='openings-submode']:checked").value;
     $("learn-picker").classList.toggle("hidden", sub === "tutor");
-    // Спарринг: цвет задан дебютом соперника, зато выбирается сила бота.
+    // Спарринг: цвет задан дебютом соперника, зато выбираются сила бота и подсказки.
     $("color-fieldset").classList.toggle("hidden", sub === "sparring");
     $("difficulty-fieldset").classList.toggle("hidden", sub !== "sparring");
+    $("hints-fieldset").classList.toggle("hidden", sub !== "sparring");
     $("setup-hint").textContent = sub === "tutor"
         ? "Свободный разбор: выбери цвет (снизу) — ходить можно за обе стороны."
         : (sub === "sparring" ? MODE_HINTS.sparring : "Выбери дебют и свой цвет.");
