@@ -26,19 +26,14 @@
             <fieldset>
                 <legend>Режим</legend>
                 <label class="radio-card">
-                    <input type="radio" name="mode" value="training" checked>
-                    <span class="rc-icon">🎓</span>
-                    <span>Тренировка<small>Разбор каждого хода: дебютная теория, идея, перспектива, сноски из книг</small></span>
-                </label>
-                <label class="radio-card">
-                    <input type="radio" name="mode" value="casual">
+                    <input type="radio" name="mode" value="casual" checked>
                     <span class="rc-icon">⚔️</span>
-                    <span>Обычная игра<small>Честная партия против Stockfish без подсказок; уровень силы — от новичка до максимума</small></span>
+                    <span>Обычная игра<small>С компьютером (уровни силы, подсказки по желанию) или вдвоём за одной доской</small></span>
                 </label>
                 <label class="radio-card">
                     <input type="radio" name="mode" value="openings">
-                    <span class="rc-icon">📚</span>
-                    <span>Дебюты<small>Сначала выбери дебют и цвет, затем занятие: учить с подсказками, тренировать по памяти или свободно разбирать</small></span>
+                    <span class="rc-icon">🏋️</span>
+                    <span>Тренировка<small>Дебюты: учить с подсказками, играть по памяти, свободный разбор с полной аналитикой, спарринг против дебюта</small></span>
                 </label>
                 <label class="radio-card">
                     <input type="radio" name="mode" value="puzzles">
@@ -79,6 +74,19 @@
                 <label class="radio-card">
                     <input type="radio" name="difficulty" value="impossible">
                     <span class="rc-icon">💀</span><span>Невозможный<small>Stockfish на полной силе — не выигрывают и гроссмейстеры</small></span>
+                </label>
+            </fieldset>
+            <fieldset id="opponent-fieldset" class="hidden">
+                <legend>Соперник</legend>
+                <label class="radio-card">
+                    <input type="radio" name="opponent" value="computer" checked>
+                    <span class="rc-icon">🤖</span>
+                    <span>Компьютер<small>Stockfish выбранной силы; подсказки — по желанию</small></span>
+                </label>
+                <label class="radio-card">
+                    <input type="radio" name="opponent" value="human">
+                    <span class="rc-icon">👥</span>
+                    <span>Игрок за этой доской<small>Чистая доска и история ходов — больше ничего</small></span>
                 </label>
             </fieldset>
             <fieldset id="hints-fieldset" class="hidden">
