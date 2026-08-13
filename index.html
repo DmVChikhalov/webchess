@@ -81,6 +81,19 @@
                     <span class="rc-icon">💀</span><span>Невозможный<small>Stockfish на полной силе — не выигрывают и гроссмейстеры</small></span>
                 </label>
             </fieldset>
+            <fieldset id="hints-fieldset" class="hidden">
+                <legend>Подсказки</legend>
+                <label class="radio-card">
+                    <input type="radio" name="hints" value="on">
+                    <span class="rc-icon">💡</span>
+                    <span>С подсказками<small>Стрелка и лучший ход Stockfish полной силы на твоём ходу — учебная партия, рейтинг не меняется</small></span>
+                </label>
+                <label class="radio-card">
+                    <input type="radio" name="hints" value="off" checked>
+                    <span class="rc-icon">🎯</span>
+                    <span>Без подсказок<small>Честная партия — результат идёт в рейтинг</small></span>
+                </label>
+            </fieldset>
             <fieldset id="color-fieldset">
                 <legend>Ваш цвет (вы всегда снизу)</legend>
                 <label class="radio-card">
