@@ -41,11 +41,6 @@
                     <span>Дебюты<small>Сначала выбери дебют и цвет, затем занятие: учить с подсказками, тренировать по памяти или свободно разбирать</small></span>
                 </label>
                 <label class="radio-card">
-                    <input type="radio" name="mode" value="sparring">
-                    <span class="rc-icon">🥊</span>
-                    <span>Спарринг против дебюта<small>Выбери, какой дебют играет СОПЕРНИК: бот ведёт его книжную линию, а дальше — Stockfish выбранной силы. Учись встречать конкретные дебюты</small></span>
-                </label>
-                <label class="radio-card">
                     <input type="radio" name="mode" value="puzzles">
                     <span class="rc-icon">🧩</span>
                     <span>Задачи<small>Маты и тактика из учебников; решение растит рейтинг, ошибки снимают</small></span>
@@ -122,6 +117,11 @@
                     <input type="radio" name="openings-submode" value="tutor">
                     <span class="rc-icon">🧭</span>
                     <span>Свободный разбор<small>Ходишь за обе стороны; панель показывает дебют, стратегию, статистику и выходы</small></span>
+                </label>
+                <label class="radio-card">
+                    <input type="radio" name="openings-submode" value="sparring">
+                    <span class="rc-icon">🥊</span>
+                    <span>Спарринг ПРОТИВ дебюта<small>Этот дебют играет СОПЕРНИК: бот ведёт книжную линию, дальше — Stockfish выбранной силы. Твой цвет — противоположный</small></span>
                 </label>
             </fieldset>
             <div class="setup-actions">
