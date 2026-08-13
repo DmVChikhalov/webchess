@@ -84,7 +84,11 @@ const MODE_BADGES = {
     learn: "Режим: учим дебют",
     puzzles: "Режим: задачи",
     theory: "Режим: теория",
+    sparring: "Режим: спарринг против дебюта",
 };
+
+/** Игра против бота (честная, с рейтингом): обычная или спарринг. */
+function isVsBot() { return state.mode === "casual" || state.mode === "sparring"; }
 // Подсказка на 2-м шаге настройки — своя для каждого режима.
 const MODE_HINTS = {
     training: "Вы ходите за обе стороны. Не хотите думать за противника — жмите «Ход Stockfish».",
@@ -115,6 +119,7 @@ const state = {
     puzzle: null,         // состояние задачи {p, idx, solved, fails, lastDelta}
     theory: null,         // позиция в учебнике {s, p}
     learnVariation: null, // выбранная вариация дебюта на экране настройки (id или null=главная)
+    sparring: null,       // спарринг: {drill, line, varName} — дебют, который ведёт соперник
 };
 
 /** Линия выбранной вариации дебюта (или главная). */
@@ -367,11 +372,34 @@ function makeMove(moveObj) {
     checkGameOver();
     if (!state.gameOver) requestAnalysis();
     if (isDrillMode()) drillOnMoved();
-    // Обычная игра: бот отвечает сам, как только досчитает.
-    if (state.mode === "casual" && !state.gameOver && state.game.turn() !== state.playerColor) {
-        state.engineMoveRequested = true;
+    // Против бота: соперник отвечает сам. В спарринге — сначала по книге дебюта,
+    // когда книга кончилась/разошлась — Stockfish выбранной силы.
+    if (isVsBot() && !state.gameOver && state.game.turn() !== state.playerColor) {
+        const book = state.mode === "sparring" ? sparringNextBookMove() : null;
+        if (book) {
+            setTimeout(() => {
+                if (state.mode !== "sparring" || state.gameOver) return;
+                if (state.game.turn() === state.playerColor) return;
+                const still = sparringNextBookMove();
+                if (still) makeMove(still);
+            }, DRILL_OPP_MOVE_DELAY_MS);
+        } else {
+            state.engineMoveRequested = true;
+        }
     }
     renderAll();
+}
+
+/** Следующий книжный ход соперника в спарринге (null — позиция ушла из книги). */
+function sparringNextBookMove() {
+    const s = state.sparring;
+    if (!s) return null;
+    const h = state.game.history();
+    if (h.length >= s.line.length) return null;
+    for (let i = 0; i < h.length; i++) {
+        if (drillNorm(h[i]) !== drillNorm(s.line[i])) return null;
+    }
+    return s.line[h.length];
 }
 
 function applyEngineMove() {
@@ -395,7 +423,7 @@ function undoMove() {
     if (state.game.history().length === 0) return;
     state.game.undo();
     // Против бота откатываем пару «ответ бота + свой ход», чтобы очередь вернулась игроку.
-    if (state.mode === "casual" && state.game.turn() !== state.playerColor && state.game.history().length > 0) {
+    if (isVsBot() && state.game.turn() !== state.playerColor && state.game.history().length > 0) {
         state.game.undo();
     }
     state.gameOver = false;
@@ -421,8 +449,8 @@ function checkGameOver() {
     else if (g.in_threefold_repetition()) text = "Ничья: троекратное повторение.";
     else if (g.insufficient_material()) text = "Ничья: недостаточно материала.";
     else text = "Ничья: правило 50 ходов.";
-    // Рейтинг за обычную игру против бота: +2.5% эло бота за победу, −5% за поражение.
-    if (state.mode === "casual") {
+    // Рейтинг за игру против бота (обычная и спарринг): +2.5% эло за победу, −5% за поражение.
+    if (isVsBot()) {
         const botElo = DIFFICULTY_LEVELS[state.difficulty].approx;
         if (g.in_checkmate()) {
             const playerWon = (g.turn() === "w" ? "b" : "w") === state.playerColor;
@@ -521,7 +549,7 @@ function renderArrow() {
     const a = state.analysis;
     // В загадке стрелка запрещена (спойлер), в просмотре партий — показываем лучший ход.
     if (isDrillMode() && (!state.drill || state.drill.phase !== "replay")) return;
-    if (state.mode === "casual" || state.mode === "puzzles" || state.mode === "theory") return; // без подсказок
+    if (isVsBot() || state.mode === "puzzles" || state.mode === "theory") return; // без подсказок
     if (state.gameOver || !a || !a.bestUci || a.fen !== state.game.fen()) return;
     const from = squareToXY(a.bestUci.slice(0, 2));
     const to = squareToXY(a.bestUci.slice(2, 4));
@@ -539,8 +567,8 @@ function onSquareClick(sq) {
     if (state.gameOver || state.pendingPromotion) return;
     // Тренировка дебютов: клики только в фазе загадки и только в свой ход.
     if (isDrillMode() && (!state.drill || state.drill.phase !== "quiz" || drillShouldAuto())) return;
-    // Обычная игра: за бота ходить нельзя.
-    if (state.mode === "casual" && state.game.turn() !== state.playerColor) return;
+    // Против бота: за него ходить нельзя.
+    if (isVsBot() && state.game.turn() !== state.playerColor) return;
     // Теория — доска-иллюстрация; в задаче ходит только решающий.
     if (state.mode === "theory") return;
     if (state.mode === "puzzles" && (!state.puzzle || state.puzzle.solved || state.game.turn() !== state.playerColor)) return;
@@ -1175,6 +1203,23 @@ function renderRecommendation() {
             <p class="${botTurn ? "muted" : "drill-your-turn"}">${state.gameOver ? "Партия окончена." : (botTurn ? "Бот думает…" : "Твой ход!")}</p>`;
         return;
     }
+    if (state.mode === "sparring") {
+        const s = state.sparring;
+        const level = DIFFICULTY_LEVELS[state.difficulty];
+        const h = state.game.history();
+        let inBook = h.length <= s.line.length;
+        for (let i = 0; inBook && i < h.length; i++) {
+            if (drillNorm(h[i]) !== drillNorm(s.line[i])) inBook = false;
+        }
+        const bookDone = !inBook || h.length >= s.line.length;
+        const botTurn = !state.gameOver && state.game.turn() !== state.playerColor;
+        box.innerHTML = `<h3>🥊 Спарринг против дебюта</h3>
+            <p><b>${s.drill.info.name}</b>${s.varName ? ` <span class="muted">(${s.varName})</span>` : ""}</p>
+            <p class="muted">Соперник: ${s.drill.player === "w" ? "белые" : "чёрные"} · после книги — Stockfish (${level.name})</p>
+            <p class="stats-caption">${bookDone ? "📖 Книга дебюта закончилась — играет движок." : `📖 Соперник ведёт книжную линию (ход ${Math.ceil(h.length / 2)} из ${Math.ceil(s.line.length / 2)}).`}</p>
+            <p class="${botTurn ? "muted" : "drill-your-turn"}">${state.gameOver ? "Партия окончена." : (botTurn ? "Соперник думает…" : "Твой ход!")}</p>`;
+        return;
+    }
     const a = state.analysis;
     if (state.gameOver) { box.innerHTML = "<h3>Партия окончена</h3>"; return; }
     if (!a || !a.bestSan) {
@@ -1491,7 +1536,7 @@ function renderTurnIndicator() {
     }
     const yours = turn === state.playerColor
         ? " (вы)"
-        : (state.mode === "casual" ? " (бот думает…)" : " (противник — жми «Ход Stockfish»)");
+        : (isVsBot() ? " (соперник думает…)" : " (противник — жми «Ход Stockfish»)");
     $("turn-indicator").textContent = `Ход ${name}${yours}`;
 }
 
@@ -1528,21 +1573,41 @@ function startGame() {
     $("mode-badge").textContent = MODE_BADGES[state.mode];
     // Кнопки движка и полоса оценки: в тренировке дебютов раскрыли бы ответ,
     // в обычной игре — подсказки запрещены, бот ходит сам.
-    const noEngineUi = isDrillMode() || state.mode === "casual" || state.mode === "puzzles" || state.mode === "theory";
+    const noEngineUi = isDrillMode() || isVsBot() || state.mode === "puzzles" || state.mode === "theory";
     $("btn-engine-move").classList.toggle("hidden", noEngineUi);
     $("btn-undo").classList.toggle("hidden", isDrillMode() || state.mode === "puzzles" || state.mode === "theory");
     $("eval-bar").classList.toggle("hidden", noEngineUi);
-    // Сила движка: в обычной игре — по выбранной сложности, иначе полная (для анализа).
-    if (state.mode === "casual") {
+    // Сила движка: против бота — по выбранной сложности, иначе полная (для анализа).
+    if (isVsBot()) {
         const diffRadio = document.querySelector("input[name='difficulty']:checked");
         state.difficulty = diffRadio ? diffRadio.value : "club";
         engine.configureStrength(state.difficulty);
-        if (state.playerColor === "b") state.engineMoveRequested = true; // бот-белые начинают
     } else {
         engine.configureStrength(null);
     }
+    if (state.mode === "casual" && state.playerColor === "b") state.engineMoveRequested = true; // бот-белые начинают
+    if (state.mode !== "sparring") state.sparring = null;
     if (state.mode === "puzzles") { startPuzzle(); return; }
     if (state.mode === "theory") { startTheory(); return; }
+    if (state.mode === "sparring") {
+        // Соперник играет ВЫБРАННЫЙ дебют: его цвет задан дебютом, наш — противоположный.
+        const chosen = DRILLS.find((x) => x.id === $("learn-opening").value) || DRILLS[0];
+        const sel = selectedDrillLine(chosen);
+        state.sparring = { drill: chosen, line: sel.line, varName: sel.name };
+        state.playerColor = chosen.player === "w" ? "b" : "w";
+        state.drill = null;
+        buildBoard();
+        requestAnalysis();
+        renderAll();
+        // Если соперник белые — его первый книжный ход.
+        if (state.game.turn() !== state.playerColor) {
+            setTimeout(() => {
+                const book = sparringNextBookMove();
+                if (book && state.mode === "sparring") makeMove(book);
+            }, DRILL_OPP_MOVE_DELAY_MS);
+        }
+        return;
+    }
     if (state.mode === "learn") {
         // Учим выбранный дебют (и вариацию) выбранным цветом.
         const chosen = DRILLS.find((x) => x.id === $("learn-opening").value) || DRILLS[0];
@@ -1590,14 +1655,21 @@ function setupContinue() {
         $("setup-step3").classList.remove("hidden");
         return;
     }
-    $("learn-picker").classList.add("hidden");
-    $("difficulty-fieldset").classList.toggle("hidden", mode !== "casual");
+    $("learn-picker").classList.toggle("hidden", mode !== "sparring");
+    $("difficulty-fieldset").classList.toggle("hidden", mode !== "casual" && mode !== "sparring");
+    // В спарринге свой цвет не выбирается — он противоположен цвету дебюта соперника.
+    $("color-fieldset").classList.toggle("hidden", mode === "sparring");
     $("setup-hint").textContent = MODE_HINTS[mode] || "";
     $("setup-step2").classList.remove("hidden");
+    if (mode === "sparring") renderLearnPreview();
 }
+
+// Подсказка шага 2 для спарринга.
+MODE_HINTS.sparring = "Выбери дебют СОПЕРНИКА и силу бота: твой цвет — противоположный. Бот ведёт книжную линию, дальше играет Stockfish.";
 
 /** Шаг занятия «Дебютов» → параметры: дебют (кроме свободного разбора) + цвет. */
 function setupOpeningsParams() {
+    $("color-fieldset").classList.remove("hidden");
     const sub = document.querySelector("input[name='openings-submode']:checked").value;
     $("learn-picker").classList.toggle("hidden", sub === "tutor");
     $("difficulty-fieldset").classList.add("hidden");
