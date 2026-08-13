@@ -1655,27 +1655,26 @@ function setupContinue() {
         $("setup-step3").classList.remove("hidden");
         return;
     }
-    $("learn-picker").classList.toggle("hidden", mode !== "sparring");
-    $("difficulty-fieldset").classList.toggle("hidden", mode !== "casual" && mode !== "sparring");
-    // В спарринге свой цвет не выбирается — он противоположен цвету дебюта соперника.
-    $("color-fieldset").classList.toggle("hidden", mode === "sparring");
+    $("learn-picker").classList.add("hidden");
+    $("difficulty-fieldset").classList.toggle("hidden", mode !== "casual");
+    $("color-fieldset").classList.remove("hidden");
     $("setup-hint").textContent = MODE_HINTS[mode] || "";
     $("setup-step2").classList.remove("hidden");
-    if (mode === "sparring") renderLearnPreview();
 }
 
 // Подсказка шага 2 для спарринга.
 MODE_HINTS.sparring = "Выбери дебют СОПЕРНИКА и силу бота: твой цвет — противоположный. Бот ведёт книжную линию, дальше играет Stockfish.";
 
-/** Шаг занятия «Дебютов» → параметры: дебют (кроме свободного разбора) + цвет. */
+/** Шаг занятия «Дебютов» → параметры: дебют (кроме разбора), цвет (кроме спарринга). */
 function setupOpeningsParams() {
-    $("color-fieldset").classList.remove("hidden");
     const sub = document.querySelector("input[name='openings-submode']:checked").value;
     $("learn-picker").classList.toggle("hidden", sub === "tutor");
-    $("difficulty-fieldset").classList.add("hidden");
+    // Спарринг: цвет задан дебютом соперника, зато выбирается сила бота.
+    $("color-fieldset").classList.toggle("hidden", sub === "sparring");
+    $("difficulty-fieldset").classList.toggle("hidden", sub !== "sparring");
     $("setup-hint").textContent = sub === "tutor"
         ? "Свободный разбор: выбери цвет (снизу) — ходить можно за обе стороны."
-        : "Выбери дебют и свой цвет.";
+        : (sub === "sparring" ? MODE_HINTS.sparring : "Выбери дебют и свой цвет.");
     $("setup-step3").classList.add("hidden");
     $("setup-step2").classList.remove("hidden");
     if (sub !== "tutor") renderLearnPreview();
@@ -1760,7 +1759,7 @@ document.addEventListener("DOMContentLoaded", () => {
     if (params.get("autostart") === "1") {
         const color = params.get("color") === "b" ? "b" : "w";
         const modeParam = params.get("mode");
-        const mode = (modeParam === "casual" || modeParam === "tutor" || modeParam === "drill" || modeParam === "learn") ? modeParam : "training";
+        const mode = (modeParam === "casual" || modeParam === "tutor" || modeParam === "drill" || modeParam === "learn" || modeParam === "sparring") ? modeParam : "training";
         if (params.get("drill")) {
             state.drillForceId = params.get("drill");
             $("learn-opening").value = params.get("drill");
@@ -1771,7 +1770,7 @@ document.addEventListener("DOMContentLoaded", () => {
         }
         document.querySelector(`input[name='color'][value='${color}']`).checked = true;
         // Дебютные режимы в UI живут под зонтиком «Дебюты» — радио выставляются парой.
-        if (mode === "learn" || mode === "drill" || mode === "tutor") {
+        if (mode === "learn" || mode === "drill" || mode === "tutor" || mode === "sparring") {
             document.querySelector("input[name='mode'][value='openings']").checked = true;
             document.querySelector(`input[name='openings-submode'][value='${mode}']`).checked = true;
         } else {
