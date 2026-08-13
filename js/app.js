@@ -85,6 +85,7 @@ const MODE_BADGES = {
     puzzles: "Режим: задачи",
     theory: "Режим: теория",
     sparring: "Режим: спарринг против дебюта",
+    hotseat: "Игра вдвоём",
 };
 
 /** Игра против бота (честная, с рейтингом): обычная или спарринг. */
@@ -92,8 +93,8 @@ function isVsBot() { return state.mode === "casual" || state.mode === "sparring"
 // Подсказка на 2-м шаге настройки — своя для каждого режима.
 const MODE_HINTS = {
     training: "Вы ходите за обе стороны. Не хотите думать за противника — жмите «Ход Stockfish».",
-    casual: "Честная партия против бота: подсказок нет, бот ходит сам.",
-    openings: "Выберите дебют и свой цвет — на следующем шаге решите, как заниматься.",
+    casual: "Против компьютера — уровни силы и подсказки по желанию; вдвоём — чистая доска.",
+    openings: "Выберите занятие, затем дебют и цвет.",
 };
 const DRILL_OPP_MOVE_DELAY_MS = 650;   // пауза перед авто-ходом тренажёра
 const DRILL_MODAL_DELAY_MS = 700;      // пауза между последним ходом линии и модалкой
@@ -246,7 +247,7 @@ function requestAnalysis() {
     // В тренировке дебютов движок молчит (рекомендация раскрыла бы загаданный ход) —
     // КРОМЕ просмотра исторических партий: там оценка показывает, где ошибались мастера.
     if (!engine.ready || state.gameOver) return;
-    if (state.mode === "puzzles" || state.mode === "theory") return; // движок не нужен
+    if (state.mode === "puzzles" || state.mode === "theory" || state.mode === "hotseat") return; // движок не нужен
     if (isDrillMode() && (!state.drill || state.drill.phase !== "replay")) return;
     // Против бота: подсказка игроку считается ПОЛНОЙ силой, ход бота — выбранной.
     if (isVsBot()) {
@@ -565,7 +566,7 @@ function renderArrow() {
     const a = state.analysis;
     // В загадке стрелка запрещена (спойлер), в просмотре партий — показываем лучший ход.
     if (isDrillMode() && (!state.drill || state.drill.phase !== "replay")) return;
-    if (state.mode === "puzzles" || state.mode === "theory") return;
+    if (state.mode === "puzzles" || state.mode === "theory" || state.mode === "hotseat") return;
     // Против бота: стрелка-подсказка только при включённых подсказках и на ходу игрока.
     if (isVsBot() && (!state.botHints || state.game.turn() !== state.playerColor)) return;
     if (state.gameOver || !a || !a.bestUci || a.fen !== state.game.fen()) return;
@@ -1044,6 +1045,7 @@ function renderDrillPanel(box) {
         } else {
             html += `<p class="muted">Тренажёр отвечает…</p>`;
         }
+        html += openingSituationHtml(true); // единая картина: дебют, планы, шансы
         box.innerHTML = html;
         return;
     }
@@ -1084,6 +1086,9 @@ function renderDrillPanel(box) {
         } else if (d.feedback) {
             html += `<div class="drill-wrong">❌ Неправильно. ${d.feedback}</div>`;
         }
+        // Единая картина позиции (в загадке без выбранного дебюта имя скрыто не здесь:
+        // тренировка теперь всегда с ВЫБРАННЫМ дебютом — картину показываем).
+        html += openingSituationHtml(true);
         box.innerHTML = html;
         return;
     }
@@ -1332,6 +1337,12 @@ function renderRecommendation() {
     if (state.mode === "puzzles") { renderPuzzlePanel(box); return; }
     if (state.mode === "theory") { renderTheoryPanel(box); return; }
     if (isDrillMode()) { renderDrillPanel(box); return; }
+    if (state.mode === "hotseat") {
+        const turnName = state.game.turn() === "w" ? "белых" : "чёрных";
+        box.innerHTML = `<h3>👥 Игра вдвоём за доской</h3>
+            <p class="${state.gameOver ? "muted" : "drill-your-turn"}">${state.gameOver ? "Партия окончена." : `Ход ${turnName}.`}</p>`;
+        return;
+    }
     if (state.mode === "casual") {
         const level = DIFFICULTY_LEVELS[state.difficulty];
         const botTurn = !state.gameOver && state.game.turn() !== state.playerColor;
@@ -1360,6 +1371,7 @@ function renderRecommendation() {
             <p class="stats-caption">${bookDone ? "📖 Книга дебюта закончилась — играет движок." : `📖 Соперник ведёт книжную линию (ход ${Math.ceil(h.length / 2)} из ${Math.ceil(s.line.length / 2)}).`}</p>
             <p class="${botTurn ? "muted" : "drill-your-turn"}">${state.gameOver ? "Партия окончена." : (botTurn ? "Соперник думает…" : "Твой ход!")}</p>`
             + botHintBlockHtml()
+            + openingSituationHtml(true) // единая картина: чей дебют, планы, шансы
             + postReviewBlockHtml();
         attachPostReviewButton(box);
         return;
@@ -1392,13 +1404,15 @@ function renderRecommendation() {
 function renderReview() {
     const box = $("review-box");
     const r = state.lastMoveReview;
+    // Полный разбор ходов живёт в тренировке и в свободном разборе (бывшая «Тренировка»).
+    const reviewMode = state.mode === "training" || state.mode === "tutor";
     if (!r) {
-        box.innerHTML = state.mode === "training"
+        box.innerHTML = reviewMode
             ? "<h3>Разбор хода</h3><p class='muted'>Сделайте ход — здесь появится разбор с теорией.</p>"
             : "";
         return;
     }
-    if (state.mode !== "training") { box.innerHTML = ""; return; }
+    if (!reviewMode) { box.innerHTML = ""; return; }
 
     const colorName = r.color === "w" ? "белых" : "чёрных";
     const isOpponent = r.color !== state.playerColor;
@@ -1584,6 +1598,37 @@ function miniBoardHtml(fen, flipped, sizeClass) {
     return `<span class="mini-board ${sizeClass || ""}">${cells}</span>`;
 }
 
+/**
+ * ЕДИНАЯ карточка дебютной картины: чей дебют на доске, суть, твой план,
+ * план соперника и шансы по уровням. Используется во всех дебютных режимах,
+ * чтобы информация везде была одинаково систематизирована.
+ * compact=true — короткая версия (без ориентиров).
+ */
+function openingSituationHtml(compact) {
+    const history = state.game.history();
+    const fam = findStrategy(history);
+    if (!fam) return "";
+    const iAmWhite = state.playerColor === "w";
+    const myPlan = iAmWhite ? fam.white : fam.black;
+    const oppPlan = iAmWhite ? fam.black : fam.white;
+    const stats = statsForFamily(fam);
+    let html = `<div class="opening-card">
+        <div class="strat-opening">${fam.name}</div>
+        <p class="strat-summary">${fam.summary}</p>
+        <div class="strat-side strat-mine"><b>Твой план (${iAmWhite ? "белые" : "чёрные"}):</b> ${myPlan}</div>
+        <div class="strat-side strat-theirs"><b>План соперника (${iAmWhite ? "чёрные" : "белые"}):</b> ${oppPlan}</div>`;
+    if (stats) {
+        html += statsRowHtml("Мастера", stats, state.playerColor)
+            + statsRowHtml("Любители ~1600", statsForFamilyAmateur(fam), state.playerColor);
+    }
+    if (!compact && fam.keys && fam.keys.length) {
+        html += `<div class="strat-keys"><b>Ориентиры:</b><ul>`
+            + fam.keys.map((k) => `<li>${k}</li>`).join("") + `</ul></div>`;
+    }
+    html += `</div>`;
+    return html;
+}
+
 /** Панель самоучителя: дебют партии, глобальная стратегия за игрока и план соперника. */
 function renderTutor() {
     const box = $("tutor-box");
@@ -1664,6 +1709,10 @@ function renderHistory() {
 }
 
 function renderTurnIndicator() {
+    if (state.mode === "hotseat") {
+        $("turn-indicator").textContent = state.gameOver ? "" : `Ход ${state.game.turn() === "w" ? "белых" : "чёрных"}`;
+        return;
+    }
     if (state.mode === "theory") { $("turn-indicator").textContent = "Учебник — доска-иллюстрация"; return; }
     if (state.mode === "puzzles") {
         $("turn-indicator").textContent = state.puzzle && state.puzzle.solved ? "Решено!" : "Найди лучший ход";
@@ -1705,6 +1754,13 @@ function startGame() {
     state.mode = state.openingsFlow
         ? document.querySelector("input[name='openings-submode']:checked").value
         : topMode;
+    // Обычная игра «вдвоём за доской» — отдельный простой режим hotseat.
+    if (state.mode === "casual") {
+        const opp = document.querySelector("input[name='opponent']:checked");
+        if (opp && opp.value === "human") {
+            state.mode = "hotseat";
+        }
+    }
     state.game = new Chess();
     state.selected = null;
     state.lastMove = null;
@@ -1717,10 +1773,15 @@ function startGame() {
     $("mode-badge").textContent = MODE_BADGES[state.mode];
     // Кнопки движка и полоса оценки: в тренировке дебютов раскрыли бы ответ,
     // в обычной игре — подсказки запрещены, бот ходит сам.
-    const noEngineUi = isDrillMode() || isVsBot() || state.mode === "puzzles" || state.mode === "theory";
+    const noEngineUi = isDrillMode() || isVsBot() || state.mode === "puzzles" || state.mode === "theory" || state.mode === "hotseat";
     $("btn-engine-move").classList.toggle("hidden", noEngineUi);
     $("btn-undo").classList.toggle("hidden", isDrillMode() || state.mode === "puzzles" || state.mode === "theory");
     $("eval-bar").classList.toggle("hidden", noEngineUi);
+    // Вдвоём за доской: только доска и история — виджеты скрыты.
+    const bare = state.mode === "hotseat";
+    $("captured-top").classList.toggle("hidden", bare);
+    $("captured-bottom").classList.toggle("hidden", bare);
+    if ($("pos-stats")) $("pos-stats").classList.toggle("hidden", bare);
     // Сила движка: против бота — по выбранной сложности, иначе полная (для анализа).
     if (isVsBot()) {
         const diffRadio = document.querySelector("input[name='difficulty']:checked");
@@ -1734,6 +1795,7 @@ function startGame() {
     }
     state.postReview = null;
     if (state.mode === "casual" && state.playerColor === "b") state.engineMoveRequested = true; // бот-белые начинают
+    if (state.mode === "hotseat") state.playerColor = "w"; // белые снизу, ходят оба
     if (state.mode !== "sparring") state.sparring = null;
     if (state.mode === "puzzles") { startPuzzle(); return; }
     if (state.mode === "theory") { startTheory(); return; }
@@ -1804,11 +1866,21 @@ function setupContinue() {
         return;
     }
     $("learn-picker").classList.add("hidden");
-    $("difficulty-fieldset").classList.toggle("hidden", mode !== "casual");
-    $("hints-fieldset").classList.toggle("hidden", mode !== "casual");
-    $("color-fieldset").classList.remove("hidden");
+    $("opponent-fieldset").classList.toggle("hidden", mode !== "casual");
+    updateCasualFields();
     $("setup-hint").textContent = MODE_HINTS[mode] || "";
     $("setup-step2").classList.remove("hidden");
+}
+
+/** Поля обычной игры зависят от соперника: против человека — ничего лишнего. */
+function updateCasualFields() {
+    const mode = document.querySelector("input[name='mode']:checked").value;
+    const vsHuman = mode === "casual"
+        && document.querySelector("input[name='opponent']:checked").value === "human";
+    const vsComputer = mode === "casual" && !vsHuman;
+    $("difficulty-fieldset").classList.toggle("hidden", !vsComputer);
+    $("hints-fieldset").classList.toggle("hidden", !vsComputer);
+    $("color-fieldset").classList.toggle("hidden", vsHuman); // вдвоём: белые снизу, выбор не нужен
 }
 
 // Подсказка шага 2 для спарринга.
@@ -1888,6 +1960,9 @@ document.addEventListener("DOMContentLoaded", () => {
     $("btn-engine-move").addEventListener("click", onEngineMoveClick);
     $("btn-undo").addEventListener("click", undoMove);
     $("btn-new-game").addEventListener("click", backToSetup);
+    // Поля обычной игры реагируют на выбор соперника.
+    document.querySelectorAll("input[name='opponent']").forEach((r) =>
+        r.addEventListener("change", updateCasualFields));
     // Список дебютов, отсортированный по популярности-2026 + живое превью позиции.
     $("learn-opening").innerHTML = [...DRILLS]
         .sort((a, b) => (a.popularity || 99) - (b.popularity || 99))
@@ -1908,8 +1983,9 @@ document.addEventListener("DOMContentLoaded", () => {
     const params = new URLSearchParams(location.search);
     if (params.get("autostart") === "1") {
         const color = params.get("color") === "b" ? "b" : "w";
-        const modeParam = params.get("mode");
-        const mode = (modeParam === "casual" || modeParam === "tutor" || modeParam === "drill" || modeParam === "learn" || modeParam === "sparring") ? modeParam : "training";
+        let modeParam = params.get("mode");
+        if (modeParam === "training" || !modeParam) modeParam = "tutor"; // legacy: тренировка влилась в свободный разбор
+        const mode = (modeParam === "casual" || modeParam === "tutor" || modeParam === "drill" || modeParam === "learn" || modeParam === "sparring") ? modeParam : "tutor";
         if (params.get("drill")) {
             state.drillForceId = params.get("drill");
             $("learn-opening").value = params.get("drill");
