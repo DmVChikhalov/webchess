@@ -17,6 +17,11 @@
 
 * { box-sizing: border-box; margin: 0; padding: 0; }
 
+html, body {
+    /* Без микропрокруток: 100vw на ПК включает скроллбар (горизонтальные 2-3 мм),
+       а лишние нижние отступы дают такой же вертикальный хвост. */
+    overflow-x: hidden;
+}
 body {
     background: var(--bg);
     color: var(--text);
@@ -65,9 +70,10 @@ legend { padding: 0 8px; color: var(--accent-2); font-weight: 600; }
 
 /* ---------- Игровой экран ---------- */
 .game-layout {
-    display: flex; gap: 24px; padding: 20px; max-width: 1500px; margin: 0 auto;
+    display: flex; gap: 24px; padding: 16px 20px 8px; max-width: 1500px; margin: 0 auto;
     align-items: flex-start;
 }
+.game-layout > * { min-width: 0; } /* дети не распирают контейнер по горизонтали */
 .board-column { flex: 0 0 auto; }
 .panel-column { flex: 1 1 auto; min-width: 340px; max-width: 640px; display: flex; flex-direction: column; gap: 14px; }
 
@@ -435,7 +441,7 @@ legend { padding: 0 8px; color: var(--accent-2); font-weight: 600; }
 @media (max-width: 700px) {
     :root { --board-size: calc(100vw - 58px); }
     body { font-size: 15px; }
-    .game-layout { padding: 8px; gap: 12px; }
+    .game-layout { padding: 8px 8px 4px; gap: 10px; }
     .board-header { margin-bottom: 6px; flex-wrap: wrap; gap: 8px; }
     .badge { font-size: 0.75em; padding: 3px 10px; }
     #turn-indicator { font-size: 0.85em; }
