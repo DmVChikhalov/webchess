@@ -331,6 +331,19 @@ legend { padding: 0 8px; color: var(--accent-2); font-weight: 600; }
 .mw { color: #f8f6ef; text-shadow: -1px 0 0 #464034, 1px 0 0 #464034, 0 -1px 0 #464034, 0 1px 0 #464034; }
 .mb { color: #17150f; text-shadow: 0 0 2px rgba(240, 230, 208, 0.4); }
 .learn-preview { margin-top: 12px; text-align: center; }
+/* Кнопки вариаций дебюта */
+.variation-picker { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+.vbtn {
+    border: 1px solid #3d3b34; border-radius: 16px; padding: 6px 12px; cursor: pointer;
+    background: var(--panel-2); color: var(--muted); font-family: inherit; font-size: 0.82em;
+    transition: all 0.15s;
+}
+.vbtn:hover { color: var(--text); border-color: var(--accent); }
+.vbtn.active { background: var(--accent); color: #fff; border-color: var(--accent); font-weight: 600; }
+.variation-when {
+    margin-top: 8px; padding: 8px 10px; background: var(--panel-2); border-radius: 8px;
+    font-size: 0.85em; color: var(--text); line-height: 1.4; text-align: left;
+}
 .learn-stats-bar { margin-top: 10px; }
 .learn-my-color { color: var(--accent-2); }
 .modal-diagram { text-align: center; margin-bottom: 12px; }

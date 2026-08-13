@@ -93,7 +93,7 @@ const MODE_HINTS = {
 };
 const DRILL_OPP_MOVE_DELAY_MS = 650;   // пауза перед авто-ходом тренажёра
 const DRILL_MODAL_DELAY_MS = 700;      // пауза между последним ходом линии и модалкой
-const DRILL_SF_MAX_PLIES = 40;         // потолок доигрывания партии движком (полуходы)
+const DRILL_SF_MAX_PLIES = 600;        // страховка от бесконечности: партия закончится сама (мат/ничья/50 ходов)
 
 // ---------------- Состояние ----------------
 const state = {
@@ -114,7 +114,17 @@ const state = {
     difficulty: "club",   // уровень бота в обычной игре (ключ DIFFICULTY_LEVELS)
     puzzle: null,         // состояние задачи {p, idx, solved, fails, lastDelta}
     theory: null,         // позиция в учебнике {s, p}
+    learnVariation: null, // выбранная вариация дебюта на экране настройки (id или null=главная)
 };
+
+/** Линия выбранной вариации дебюта (или главная). */
+function selectedDrillLine(drillObj) {
+    if (state.learnVariation) {
+        const v = (drillObj.variations || []).find((x) => x.id === state.learnVariation);
+        if (v) return { line: v.line, name: v.name, when: v.when };
+    }
+    return { line: drillObj.line, name: null, when: null };
+}
 
 // ---------------- Движок ----------------
 // ВАЖНО: обёртка Stockfish 18 виснет, если послать «stop» во время поиска и сразу
@@ -727,7 +737,14 @@ function drillExpectedVerbose() {
     return state.game.moves({ verbose: true }).find((m) => drillNorm(m.san) === drillNorm(expected)) || null;
 }
 
-function drillLine() { return state.drill.drill.line; }
+function drillLine() { return state.drill.lineOverride || state.drill.drill.line; }
+
+/** Подсказка линии для текущего хода (для вариаций подсказок нет — теория из базы). */
+function drillHint(idx) {
+    const d = state.drill;
+    if (!d || d.lineOverride) return "";
+    return (d.drill.hints || [])[idx] || "";
+}
 
 /** Сейчас должен ходить тренажёр? (соперник; за белого игрока — и первый ход белых) */
 function drillShouldAuto() {
@@ -746,6 +763,8 @@ function startDrill(drillObj, opts) {
         wrongAtPly: 0, lastCorrect: null, replayPly: 0, replayGame: 0,
         sfContinue: false, sfLastSan: null, sfLastEval: null,
         teach: !!(opts && opts.teach), // learn-режим: прямые указания вместо загадки
+        lineOverride: (opts && opts.line) || null, // линия выбранной вариации
+        varName: (opts && opts.varName) || null,
     };
     state.playerColor = (opts && opts.color) || drillObj.player;
     state.game = new Chess();
@@ -790,7 +809,7 @@ function drillTryMove(legal) {
     const idx = state.game.history().length;
     const expected = drillLine()[idx];
     if (drillNorm(legal.san) === drillNorm(expected)) {
-        const hint = (d.drill.hints || [])[idx] || "";
+        const hint = drillHint(idx);
         makeMove({ from: legal.from, to: legal.to, promotion: legal.promotion });
         // Обоснование правильного хода: мысль линии + теория из дебютной базы.
         const op = openingForLastMove(state.game.history().slice(0, idx + 1));
@@ -839,7 +858,7 @@ function renderDrillPanel(box) {
     if (d.phase === "quiz" && d.teach) {
         // Учебный режим: прямые указания — какую фигуру куда двигать и почему.
         const yourTurn = state.game.turn() === state.playerColor && !drillShouldAuto();
-        let html = `<h3>📖 Учим: ${info.name}</h3>
+        let html = `<h3>📖 Учим: ${info.name}${d.varName ? ` <span class="muted">(${d.varName})</span>` : ""}</h3>
             <p class="muted">Вы за ${state.playerColor === "w" ? "белых" : "чёрных"}; соперник отвечает сам. Делай ход — фигура и клетка подсвечены.</p>`;
         if (d.lastCorrect) {
             html += `<div class="drill-correct">✅ <b>${sanToRu(d.lastCorrect.san)}</b> — сделано. ${d.lastCorrect.hint}`;
@@ -849,7 +868,7 @@ function renderDrillPanel(box) {
         if (yourTurn) {
             const idx = state.game.history().length;
             const exp = drillExpectedVerbose();
-            const why = (d.drill.hints || [])[idx] || drillTheoryWhy(idx);
+            const why = drillHint(idx) || drillTheoryWhy(idx);
             if (exp) {
                 const castle = exp.san.startsWith("O-O") ? " — рокировка" : "";
                 html += `<div class="drill-teach">👉 Двигай: <b>${DRILL_PIECE_RU[exp.piece]} ${exp.from} → ${exp.to}</b>${castle}
@@ -880,7 +899,7 @@ function renderDrillPanel(box) {
         if (yourTurn) {
             // Мысль «на подумать» — всегда; конкретика добирается с ошибками.
             const idx = state.game.history().length;
-            const think = (d.drill.hints || [])[idx];
+            const think = drillHint(idx) || (d.lineOverride ? drillTheoryWhy(idx) : "");
             if (think) html += `<div class="drill-think">🤔 На подумать: ${think}</div>`;
             if (d.feedback) html += `<div class="drill-wrong">❌ Неправильно. ${d.feedback}</div>`;
             if (d.wrongAtPly > 0) {
@@ -988,11 +1007,12 @@ function openDrillModal() {
     const stats = FAMILY_STATS[info.statsFamily] || null;
     const overlay = $("drill-modal");
     const games = info.famousGames || [];
-    // Диаграмма: к какой позиции ведёт линия дебюта (снизу — цвет игрока).
+    // Диаграмма: к какой позиции ведёт линия (учитывая выбранную вариацию).
+    const lineNow = d.lineOverride || d.drill.line;
     const tmpG = new Chess();
-    d.drill.line.forEach((m) => tmpG.move(m));
+    lineNow.forEach((m) => tmpG.move(m));
     let left = `<div class="modal-diagram">${miniBoardHtml(tmpG.fen(), state.playerColor === "b", "mini-lg")}
-        <div class="stats-caption">Позиция линии после ${Math.ceil(d.drill.line.length / 2)}-го хода; вы — снизу</div></div>`;
+        <div class="stats-caption">${d.varName ? d.varName + " — " : ""}позиция после ${Math.ceil(lineNow.length / 2)}-го хода; вы — снизу</div></div>`;
     if (stats) {
         left += `<h4>📊 Шансы по уровням</h4>`
             + statsRowHtml("Мастера", stats, state.playerColor)
@@ -1524,18 +1544,20 @@ function startGame() {
     if (state.mode === "puzzles") { startPuzzle(); return; }
     if (state.mode === "theory") { startTheory(); return; }
     if (state.mode === "learn") {
-        // Учим выбранный дебют выбранным цветом.
+        // Учим выбранный дебют (и вариацию) выбранным цветом.
         const chosen = DRILLS.find((x) => x.id === $("learn-opening").value) || DRILLS[0];
-        startDrill(chosen, { teach: true, color: state.playerColor });
+        const sel = selectedDrillLine(chosen);
+        startDrill(chosen, { teach: true, color: state.playerColor, line: sel.name ? sel.line : null, varName: sel.name });
         return;
     }
     if (state.mode === "drill") {
         const forced = state.drillForceId ? DRILLS.find((x) => x.id === state.drillForceId) : null;
         state.drillForceId = null;
         if (state.openingsFlow) {
-            // Тренируем ВЫБРАННЫЙ дебют выбранным цветом (по памяти).
+            // Тренируем ВЫБРАННЫЙ дебют (и вариацию) выбранным цветом (по памяти).
             const chosen = DRILLS.find((x) => x.id === $("learn-opening").value) || DRILLS[0];
-            startDrill(chosen, { color: state.playerColor });
+            const sel = selectedDrillLine(chosen);
+            startDrill(chosen, { color: state.playerColor, line: sel.name ? sel.line : null, varName: sel.name });
         } else {
             startDrill(forced || pickDrill(null));
         }
@@ -1587,15 +1609,28 @@ function setupOpeningsParams() {
     if (sub !== "tutor") renderLearnPreview();
 }
 
-/** Превью выбранного дебюта: диаграмма финальной позиции линии + шансы за оба цвета. */
+/** Превью выбранного дебюта: вариации, диаграмма выбранной линии + шансы за оба цвета. */
 function renderLearnPreview() {
     const box = $("learn-preview");
     const drillObj = DRILLS.find((x) => x.id === $("learn-opening").value) || DRILLS[0];
     const color = document.querySelector("input[name='color']:checked").value;
+
+    // Кнопки вариаций: главная линия + знаменитые ответвления с «когда играть».
+    const vp = $("variation-picker");
+    const vars = drillObj.variations || [];
+    vp.innerHTML = `<button class="vbtn ${state.learnVariation ? "" : "active"}" data-var="">Главная линия</button>`
+        + vars.map((v) => `<button class="vbtn ${state.learnVariation === v.id ? "active" : ""}" data-var="${v.id}">${v.name}</button>`).join("");
+    vp.querySelectorAll(".vbtn").forEach((b) => b.addEventListener("click", () => {
+        state.learnVariation = b.dataset.var || null;
+        renderLearnPreview();
+    }));
+
+    const sel = selectedDrillLine(drillObj);
     const tmp = new Chess();
-    drillObj.line.forEach((m) => tmp.move(m));
+    sel.line.forEach((m) => tmp.move(m));
     let html = miniBoardHtml(tmp.fen(), color === "b", "mini-lg")
-        + `<div class="stats-caption">К этой позиции ведёт линия (после ${Math.ceil(drillObj.line.length / 2)}-го хода); вы — снизу</div>`;
+        + `<div class="stats-caption">${sel.name ? sel.name + " — " : ""}позиция после ${Math.ceil(sel.line.length / 2)}-го хода; вы — снизу</div>`
+        + (sel.when ? `<div class="variation-when">💬 ${sel.when}</div>` : "");
     // Шансы дебюта ПО УРОВНЯМ: мастера и любители играют дебюты по-разному.
     const stats = FAMILY_STATS[drillObj.info.statsFamily];
     const statsAm = FAMILY_STATS_AMATEUR[drillObj.info.statsFamily];
@@ -1632,9 +1667,11 @@ document.addEventListener("DOMContentLoaded", () => {
     $("btn-engine-move").addEventListener("click", onEngineMoveClick);
     $("btn-undo").addEventListener("click", undoMove);
     $("btn-new-game").addEventListener("click", backToSetup);
-    // Список дебютов для режима обучения + живое превью позиции.
-    $("learn-opening").innerHTML = DRILLS.map((x) => `<option value="${x.id}">${x.info.name}</option>`).join("");
-    $("learn-opening").addEventListener("change", renderLearnPreview);
+    // Список дебютов, отсортированный по популярности-2026 + живое превью позиции.
+    $("learn-opening").innerHTML = [...DRILLS]
+        .sort((a, b) => (a.popularity || 99) - (b.popularity || 99))
+        .map((x) => `<option value="${x.id}">${x.info.name}</option>`).join("");
+    $("learn-opening").addEventListener("change", () => { state.learnVariation = null; renderLearnPreview(); });
     document.querySelectorAll("input[name='color']").forEach((r) =>
         r.addEventListener("change", () => {
             if (!$("learn-picker").classList.contains("hidden")) renderLearnPreview();
